@@ -1,61 +1,55 @@
-//
-//  ContentView.swift
-//  FirstApp
-//
-//  Created by Duncan Bagley on 9/23/26.
-//
-
 import SwiftUI
 import SwiftData
 
+private enum AppTab: Hashable {
+    case home, calendar, record, history, settings
+}
+
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
-    @Query private var items: [Item]
+    @State private var selectedTab: AppTab = .home
+    @State private var homePath = NavigationPath()
+
+    /// Wraps the selection so we can notice a tap on the tab that is already selected.
+    private var tabSelection: Binding<AppTab> {
+        Binding(
+            get: { selectedTab },
+            set: { newValue in
+                if newValue == selectedTab, newValue == .home {
+                    // Re-tapping Home pops back to its root.
+                    homePath = NavigationPath()
+                }
+                selectedTab = newValue
+            }
+        )
+    }
 
     var body: some View {
-        NavigationSplitView {
-            List {
-                ForEach(items) { item in
-                    NavigationLink {
-                        Text("Item at \(item.timestamp, format: Date.FormatStyle(date: .numeric, time: .standard))")
-                    } label: {
-                        Text(item.timestamp, format: Date.FormatStyle(date: .numeric, time: .standard))
-                    }
-                }
-                .onDelete(perform: deleteItems)
-            }
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    EditButton()
-                }
-                ToolbarItem {
-                    Button(action: addItem) {
-                        Label("Add Item", systemImage: "plus")
-                    }
-                }
-            }
-        } detail: {
-            Text("Select an item")
+        TabView(selection: tabSelection) {
+            HomeView(path: $homePath)
+                .tabItem { Label("Home", systemImage: "house") }
+                .tag(AppTab.home)
+            CalendarView()
+                .tabItem { Label("Calendar", systemImage: "calendar") }
+                .tag(AppTab.calendar)
+            RecordView()
+                .tabItem { Label("Record", systemImage: "record.circle") }
+                .tag(AppTab.record)
+            HistoryView()
+                .tabItem { Label("History", systemImage: "chart.bar") }
+                .tag(AppTab.history)
+            SettingsView()
+                .tabItem { Label("Settings", systemImage: "gearshape") }
+                .tag(AppTab.settings)
         }
-    }
-
-    private func addItem() {
-        withAnimation {
-            let newItem = Item(timestamp: Date())
-            modelContext.insert(newItem)
-        }
-    }
-
-    private func deleteItems(offsets: IndexSet) {
-        withAnimation {
-            for index in offsets {
-                modelContext.delete(items[index])
-            }
+        .onAppear {
+            // Make sure the built-in subareas exist (adds only the missing ones).
+            Subarea.seedDefaults(in: modelContext)
         }
     }
 }
 
 #Preview {
     ContentView()
-        .modelContainer(for: Item.self, inMemory: true)
+        .modelContainer(for: [Item.self, Subarea.self, Target.self, Log.self], inMemory: true)
 }
