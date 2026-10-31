@@ -1,80 +1,116 @@
-//
-//  FerbTimerWidgetLiveActivity.swift
-//  FerbTimerWidget
-//
-//  Created by Duncan Bagley on 10/31/26.
-//
-
 import ActivityKit
 import WidgetKit
 import SwiftUI
 
-struct FerbTimerWidgetAttributes: ActivityAttributes {
+// IMPORTANT: the app has an identical copy of this struct in Ferb/Ferb/TimerActivityAttributes.swift.
+// The type name, property names and types must match exactly in both places, or the
+// Live Activity silently stops working. Change both together.
+struct FerbTimerAttributes: ActivityAttributes {
     public struct ContentState: Codable, Hashable {
-        // Dynamic stateful properties about your activity go here!
-        var emoji: String
+        /// When the clock would have started if it had never paused (now minus banked time).
+        var startedAt: Date
+        /// Set while paused; the clock freezes at this moment. nil while running.
+        var pausedAt: Date?
     }
 
-    // Fixed non-changing properties about your activity go here!
-    var name: String
+    /// The item being timed, e.g. "Meditate".
+    var itemName: String
+    /// Identifies which target's timer this is, so the app can find its activity again.
+    var targetKey: String
+}
+
+/// The ticking clock. The system draws and updates this itself, so it keeps counting while
+/// the app is closed. While paused it holds still at `pausedAt`.
+private struct TimerClock: View {
+    let state: FerbTimerAttributes.ContentState
+
+    var body: some View {
+        Text(
+            timerInterval: state.startedAt...state.startedAt.addingTimeInterval(24 * 60 * 60),
+            pauseTime: state.pausedAt,
+            countsDown: false,
+            showsHours: false
+        )
+        .monospacedDigit()
+    }
 }
 
 struct FerbTimerWidgetLiveActivity: Widget {
     var body: some WidgetConfiguration {
-        ActivityConfiguration(for: FerbTimerWidgetAttributes.self) { context in
-            // Lock screen/banner UI goes here
-            VStack {
-                Text("Hello \(context.state.emoji)")
+        ActivityConfiguration(for: FerbTimerAttributes.self) { context in
+            // Lock screen and banner
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    Image(systemName: "timer")
+                    Text(context.attributes.itemName)
+                        .font(.headline)
+                        .lineLimit(1)
+                    Spacer()
+                    Text(context.state.pausedAt == nil ? "Running" : "Paused")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                TimerClock(state: context.state)
+                    .font(.system(size: 40, weight: .bold, design: .rounded))
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .activityBackgroundTint(Color.cyan)
-            .activitySystemActionForegroundColor(Color.black)
+            .padding()
 
         } dynamicIsland: { context in
             DynamicIsland {
-                // Expanded UI goes here.  Compose the expanded UI through
-                // various regions, like leading/trailing/center/bottom
                 DynamicIslandExpandedRegion(.leading) {
-                    Text("Leading")
+                    Image(systemName: "timer")
+                }
+                DynamicIslandExpandedRegion(.center) {
+                    Text(context.attributes.itemName)
+                        .font(.headline)
+                        .lineLimit(1)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
-                    Text("Trailing")
+                    Text(context.state.pausedAt == nil ? "Running" : "Paused")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
-                    Text("Bottom \(context.state.emoji)")
-                    // more content
+                    TimerClock(state: context.state)
+                        .font(.system(size: 32, weight: .bold, design: .rounded))
+                        .frame(maxWidth: .infinity)
                 }
             } compactLeading: {
-                Text("L")
+                Image(systemName: "timer")
             } compactTrailing: {
-                Text("T \(context.state.emoji)")
+                TimerClock(state: context.state)
+                    .font(.caption.weight(.semibold))
+                    .frame(width: 52, alignment: .trailing)
             } minimal: {
-                Text(context.state.emoji)
+                Image(systemName: context.state.pausedAt == nil ? "timer" : "pause.fill")
             }
-            .widgetURL(URL(string: "http://www.apple.com"))
-            .keylineTint(Color.red)
         }
     }
 }
 
-extension FerbTimerWidgetAttributes {
-    fileprivate static var preview: FerbTimerWidgetAttributes {
-        FerbTimerWidgetAttributes(name: "World")
+extension FerbTimerAttributes {
+    fileprivate static var preview: FerbTimerAttributes {
+        FerbTimerAttributes(itemName: "Meditate", targetKey: "preview")
     }
 }
 
-extension FerbTimerWidgetAttributes.ContentState {
-    fileprivate static var smiley: FerbTimerWidgetAttributes.ContentState {
-        FerbTimerWidgetAttributes.ContentState(emoji: "😀")
-     }
-     
-     fileprivate static var starEyes: FerbTimerWidgetAttributes.ContentState {
-         FerbTimerWidgetAttributes.ContentState(emoji: "🤩")
-     }
+extension FerbTimerAttributes.ContentState {
+    fileprivate static var running: FerbTimerAttributes.ContentState {
+        FerbTimerAttributes.ContentState(startedAt: .now.addingTimeInterval(-125), pausedAt: nil)
+    }
+
+    fileprivate static var paused: FerbTimerAttributes.ContentState {
+        FerbTimerAttributes.ContentState(
+            startedAt: .now.addingTimeInterval(-300),
+            pausedAt: .now.addingTimeInterval(-120)
+        )
+    }
 }
 
-#Preview("Notification", as: .content, using: FerbTimerWidgetAttributes.preview) {
-   FerbTimerWidgetLiveActivity()
+#Preview("Lock screen", as: .content, using: FerbTimerAttributes.preview) {
+    FerbTimerWidgetLiveActivity()
 } contentStates: {
-    FerbTimerWidgetAttributes.ContentState.smiley
-    FerbTimerWidgetAttributes.ContentState.starEyes
+    FerbTimerAttributes.ContentState.running
+    FerbTimerAttributes.ContentState.paused
 }

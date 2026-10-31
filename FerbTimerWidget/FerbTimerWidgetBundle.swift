@@ -11,7 +11,6 @@ import SwiftUI
 @main
 struct FerbTimerWidgetBundle: WidgetBundle {
     var body: some Widget {
-        FerbTimerWidget()
         FerbTimerWidgetLiveActivity()
     }
 }
