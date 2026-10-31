@@ -87,10 +87,12 @@ struct AddTargetView: View {
     /// Starting tolerance (minutes) for new time targets, so "on time" isn't one exact minute.
     private static let defaultTimeTolerance = "30"
 
+    @MainActor
     private static func plainNumber(_ number: Double) -> String {
         number == number.rounded() ? String(Int(number)) : String(number)
     }
 
+    @MainActor
     private static func fields(from target: Target) -> Fields {
         let isTime = target.item?.quantitySubtype == .timeTarget
         var timeOfDay = Date.now

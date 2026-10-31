@@ -147,7 +147,6 @@ None: pure SwiftUI + SwiftData + UserNotifications + EventKit + ActivityKit/Widg
 
 ## Open Items / Ideas
 - Needs checking on a device: the timer no longer crashes on the phone (the `timeDirection` fix, which should be confirmed), the Live Activity (start, pause, resume, log; the pause fix isn't confirmed either), one-off plan slots, Delete all data (try it in the simulator first), and alert times, cold-launch tap, Log now for each target kind. The code hasn't been built end to end in a while apart from what Duncan builds in Xcode.
-- Known build warnings (not from recent work): `plainNumber` main-actor call in `AddTargetView` / `TargetDetailView`, and main-actor `Equatable` conformance of `PeriodResult` in `TargetStatus`.
 - A bedtime goal set after midnight (before noon) counts as a morning goal: logs aren't attributed across midnight.
 - No export or backup (data lives only on the phone). This is the biggest risk, and a prerequisite for ever changing the bundle identifier.
 - History tab, Profile sheet, stats block on the target page and real NFC are placeholders (there's no NFC UI now; NFC-method items are logged manually via Log now).

@@ -313,6 +313,7 @@ private struct LogEditorView: View {
         }
     }
 
+    @MainActor
     private static func plainNumber(_ number: Double) -> String {
         number == number.rounded() ? String(Int(number)) : String(number)
     }
