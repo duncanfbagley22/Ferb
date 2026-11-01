@@ -49,7 +49,8 @@ final class CalendarEventsStore {
             object: store,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in self?.revision += 1 }
+            guard let self else { return }
+            Task { @MainActor in self.revision += 1 }
         }
     }
 

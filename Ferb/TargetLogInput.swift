@@ -2,7 +2,7 @@ import SwiftUI
 import SwiftData
 
 /// What a log entry asks for, based on how the target's item is tracked.
-enum LogInputKind {
+nonisolated enum LogInputKind {
     case check          // a yes/no
     case amount         // a number (steps, reps...)
     case duration       // minutes typed in

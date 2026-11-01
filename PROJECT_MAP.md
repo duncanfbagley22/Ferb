@@ -1,6 +1,6 @@
 # Project Map: Ferb (iOS Habit Tracker)
 
-_Last updated: 2026-10-31. Reflects archiving, item/target editing, the swipe Quick update, log editing, Settings (Appearance, Alerts, Notes, Subareas, Units, Archived, Delete all data), the status/calendar rework (only the current period counts), notifications, Log now (the Record tab was removed), custom units, time-target direction, the Weekly Plan (weekly and one-off slots, read-only calendar events), the timer Live Activity (widget extension), and the rename from FirstApp to Ferb._
+_Last updated: 2026-11-01. Reflects archiving, item/target editing, the swipe Quick update, log editing, Settings (Appearance, Alerts, Notes, Subareas, Units, Archived, Delete all data), the status/calendar rework (only the current period counts), notifications, Log now (the Record tab was removed), custom units, time-target direction, the Weekly Plan (weekly and one-off slots, read-only calendar events), the timer Live Activity (widget extension), and the rename from FirstApp to Ferb._
 
 ## Overview
 - **Project Type**: Native iOS app, SwiftUI + SwiftData (iOS 17+)
@@ -129,7 +129,7 @@ None: pure SwiftUI + SwiftData + UserNotifications + EventKit + ActivityKit/Widg
 - No `.env` or secrets. Local SwiftData storage, `isStoredInMemoryOnly: false`. No CloudKit yet. Free Apple ID builds expire after 7 days (re-run from Xcode to renew; keeps data).
 - The bundle identifier is still `com.duncanbagley.FirstApp` (kept on purpose after the rename so on-device data and the notification permission carry over; changing it makes iOS treat it as a new app). Target, scheme and app name are Ferb.
 - Schema changes that add defaulted fields (or a whole new model, like `Reminder`) migrate automatically. **Exception:** a new non-optional enum field with a default (like `TimeDirection` was) is not filled in on existing rows and crashes when read ("Could not cast value of type Optional<Any> to …"; it happened on the phone, not in the simulator, which has no old rows). Store such fields as optional with a computed wrapper (`timeDirectionStored` + `timeDirection`; `@Attribute(originalName:)` keeps old values). New optional fields (like `PlanEntry.date`) are safe. Changes like turning a field into a different type require deleting the app (this happened once: Subarea enum -> model). The container creation `fatalError`s if migration fails.
-- Build setting: default actor isolation is MainActor (Swift 5 mode).
+- Build setting: default actor isolation is MainActor (Swift 5 mode). Plain types used off the main actor are marked `nonisolated` to avoid Swift 6 isolation warnings (`LogInputKind`, the app's `FerbTimerAttributes` and its `ContentState`); apply the same to any other plain enum that warns on `==`.
 - **Live Activity setup**: the Ferb target's Info needs `Supports Live Activities` (`NSSupportsLiveActivities`) = YES. The widget extension target is `FerbTimerWidget` (iOS 17, bundle ID `com.duncanbagley.FirstApp.FerbTimerWidget`) and has its own signing. Live Activities also need to be allowed for Ferb in iOS Settings (on by default). The calendar permission string (full calendar access, needed to read events) is in the Ferb target's Info.
 
 ## Notable Patterns / Conventions
@@ -145,8 +145,11 @@ None: pure SwiftUI + SwiftData + UserNotifications + EventKit + ActivityKit/Widg
 - **Live Activity**: `FerbTimerAttributes` exists twice (widget file and `TimerActivityAttributes.swift`); the type name, property names and types must stay identical or the banner silently stops working, so change both together. Only one timer banner shows at a time (starting or resuming replaces another's); pausing updates only its own banner. The key linking a target to its banner is the base64 of its JSON-encoded `persistentModelID` with sorted keys (unsorted keys made pause fail to find the banner). iOS ends a Live Activity after roughly 12 hours; the next resume starts a new one. No pause/resume buttons on the lock screen yet (that would need App Intents).
 - **Delete all data keeps a hand-written model list**: when adding a model, add it to the schema and to `deleteAllData()`.
 
+## Recent Changes
+- 2026-11-01: Swift 6 warning cleanup. `CalendarEventsStore.swift` (observer closure rebinds `self` with `guard let self` before the `Task`), `TargetLogInput.swift` (`LogInputKind` is `nonisolated`), `TimerActivityAttributes.swift` (`FerbTimerAttributes` and `ContentState` are `nonisolated`; the widget's copy is unchanged).
+
 ## Open Items / Ideas
-- Needs checking on a device: the timer no longer crashes on the phone (the `timeDirection` fix, which should be confirmed), the Live Activity (start, pause, resume, log; the pause fix isn't confirmed either), one-off plan slots, Delete all data (try it in the simulator first), and alert times, cold-launch tap, Log now for each target kind. The code hasn't been built end to end in a while apart from what Duncan builds in Xcode.
+- Duncan confirmed (2026-11-01) the earlier device checks are fixed (timer crash, Live Activity pause/resume, one-off plan slots, Delete all data, alerts, Log now). Still worth a quick device check after the warning cleanup: Live Activity (start, pause, resume, log) and the Weekly Plan event bands refreshing when the Calendar app changes.
 - A bedtime goal set after midnight (before noon) counts as a morning goal: logs aren't attributed across midnight.
 - No export or backup (data lives only on the phone). This is the biggest risk, and a prerequisite for ever changing the bundle identifier.
 - History tab, Profile sheet, stats block on the target page and real NFC are placeholders (there's no NFC UI now; NFC-method items are logged manually via Log now).
