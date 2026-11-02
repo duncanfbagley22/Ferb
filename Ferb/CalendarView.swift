@@ -3,7 +3,6 @@ import SwiftData
 
 private enum CalendarMode: String, CaseIterable, Identifiable {
     case month = "Month"
-    case week = "Week"
     case plan = "Plan"
 
     var id: String { rawValue }
@@ -12,15 +11,13 @@ private enum CalendarMode: String, CaseIterable, Identifiable {
 /// Targets that pass the calendar filters, each with its periods worked out.
 private typealias FilteredTargets = [(target: Target, periods: [TargetPeriod])]
 
-/// One target's showing in the selected day or week.
+/// One target's showing in the selected day.
 private struct CalendarEntry: Identifiable {
     let item: Item
     let target: Target
     let periods: [TargetPeriod]
 
     var id: PersistentIdentifier { target.persistentModelID }
-
-    var doneCount: Int { periods.filter { $0.result == .done }.count }
 
     /// Worst result wins: any miss shows as missed, all done shows as done.
     var result: PeriodResult { combinedResult(of: periods) }
@@ -33,7 +30,7 @@ private func combinedResult(of periods: [TargetPeriod]) -> PeriodResult {
     return periods.allSatisfy({ $0.result == .upcoming }) ? .upcoming : .open
 }
 
-/// How a day (or week) is colored in the calendar.
+/// How a day is colored in the calendar.
 private enum DayState {
     case none      // nothing tracked
     case future    // hasn't happened yet
@@ -65,7 +62,7 @@ private extension PeriodResult {
     }
 }
 
-/// Month and week views of what's tracked when. Pick a day (or a week) to see its items;
+/// Month view of what's tracked when (plus the Plan tab). Pick a day to see its items;
 /// tap an item to open it. Ongoing targets aren't projected into the future.
 struct CalendarView: View {
     @Query(sort: \Target.startDate) private var targets: [Target]
@@ -82,7 +79,7 @@ struct CalendarView: View {
     private let calendar = Calendar.current
 
     var body: some View {
-        // Worked out once per update and shared by the grid, the week rows and the list.
+        // Worked out once per update and shared by the grid and the list.
         let all = mode == .plan ? [] : filteredPeriods
         return NavigationStack {
             VStack(spacing: 0) {
@@ -104,11 +101,7 @@ struct CalendarView: View {
 
                             monthHeader
 
-                            if mode == .month {
-                                monthGrid(all)
-                            } else {
-                                weekRows(all)
-                            }
+                            monthGrid(all)
 
                             Divider()
 
@@ -191,7 +184,7 @@ struct CalendarView: View {
         .background(Color.secondary.opacity(0.15), in: Capsule())
     }
 
-    // MARK: - Month and week pickers
+    // MARK: - Month picker
 
     private var monthHeader: some View {
         HStack {
@@ -278,65 +271,11 @@ struct CalendarView: View {
         return result
     }
 
-    /// The displayed month split into weeks, with the first and last clipped to the month.
-    private var weeks: [Range<Date>] {
-        guard let monthEnd = calendar.date(byAdding: .month, value: 1, to: displayedMonth) else { return [] }
-        var result: [Range<Date>] = []
-        var cursor = displayedMonth
-        while cursor < monthEnd {
-            let weekEnd = min(calendar.dateInterval(of: .weekOfYear, for: cursor)?.end ?? monthEnd, monthEnd)
-            result.append(cursor..<weekEnd)
-            cursor = weekEnd
-        }
-        return result
-    }
-
-    private func weekRows(_ all: FilteredTargets) -> some View {
-        let states = weekStates(all)
-        return VStack(spacing: 8) {
-            ForEach(Array(weeks.enumerated()), id: \.offset) { index, week in
-                let isSelected = week.contains(selectedDay)
-                let tint = states[index].tint ?? Color.secondary.opacity(0.05)
-                Button { selectedDay = week.lowerBound } label: {
-                    HStack {
-                        Text("W\(index + 1)")
-                            .bold()
-                        Spacer()
-                        Text(rangeLabel(week))
-                            .font(.subheadline)
-                    }
-                    .padding(.horizontal)
-                    .padding(.vertical, 10)
-                    .foregroundStyle(Color.primary)
-                    .background(tint, in: RoundedRectangle(cornerRadius: 12))
-                    .overlay {
-                        if isSelected {
-                            RoundedRectangle(cornerRadius: 12).stroke(Color.primary, lineWidth: 2)
-                        }
-                    }
-                }
-                .buttonStyle(.plain)
-            }
-        }
-    }
-
-    private func rangeLabel(_ range: Range<Date>) -> String {
-        let last = calendar.date(byAdding: .day, value: -1, to: range.upperBound) ?? range.upperBound
-        let start = range.lowerBound.formatted(.dateTime.month(.abbreviated).day())
-        let end = last.formatted(.dateTime.month(.abbreviated).day())
-        return start == end ? start : "\(start) – \(end)"
-    }
-
     // MARK: - Entries
 
     private var selectedRange: Range<Date> {
-        switch mode {
-        case .month, .plan:
-            let end = calendar.date(byAdding: .day, value: 1, to: selectedDay) ?? selectedDay
-            return selectedDay..<end
-        case .week:
-            return weeks.first { $0.contains(selectedDay) } ?? (selectedDay..<selectedDay)
-        }
+        let end = calendar.date(byAdding: .day, value: 1, to: selectedDay) ?? selectedDay
+        return selectedDay..<end
     }
 
     /// Targets that pass the area and subarea filters, with their periods worked out once.
@@ -376,7 +315,7 @@ struct CalendarView: View {
         return nil
     }
 
-    /// The color state for a day or week, following the area, subarea and status filters.
+    /// The color state for a day, following the area, subarea and status filters.
     private func state(
         for range: Range<Date>,
         in all: [(target: Target, periods: [TargetPeriod])]
@@ -384,23 +323,9 @@ struct CalendarView: View {
         let today = calendar.startOfDay(for: .now)
         if range.lowerBound > today { return .future }
 
-        // A single day counts a longer period only on the day it was settled; a week row
-        // keeps the whole-period view.
-        let isSingleDay = calendar.dateComponents([.day], from: range.lowerBound, to: range.upperBound).day == 1
-
         var done = 0, missed = 0, open = 0
         for element in all {
-            let result: PeriodResult
-            if isSingleDay {
-                guard let forDay = dayResult(on: range.lowerBound, periods: element.periods, today: today) else { continue }
-                result = forDay
-            } else {
-                let overlapping = element.periods.filter {
-                    $0.start < range.upperBound && $0.end > range.lowerBound
-                }
-                guard !overlapping.isEmpty else { continue }
-                result = combinedResult(of: overlapping)
-            }
+            guard let result = dayResult(on: range.lowerBound, periods: element.periods, today: today) else { continue }
             if let statusFilter, result != statusFilter { continue }
             switch result {
             case .done: done += 1
@@ -427,16 +352,8 @@ struct CalendarView: View {
         return result
     }
 
-    /// State for each week row, in the same order as `weeks`.
-    private func weekStates(_ all: FilteredTargets) -> [DayState] {
-        weeks.map { state(for: $0, in: all) }
-    }
-
     private var selectionTitle: String {
-        switch mode {
-        case .month, .plan: selectedDay.formatted(date: .complete, time: .omitted)
-        case .week: "Week of \(rangeLabel(selectedRange))"
-        }
+        selectedDay.formatted(date: .complete, time: .omitted)
     }
 
     private func entryList(_ all: FilteredTargets) -> some View {
@@ -482,10 +399,7 @@ struct CalendarView: View {
     }
 
     private func subtitle(for entry: CalendarEntry) -> String {
-        switch mode {
-        case .month, .plan: entry.target.cadenceTitle
-        case .week: "\(entry.doneCount) of \(entry.periods.count) periods done"
-        }
+        entry.target.cadenceTitle
     }
 
     private func icon(for result: PeriodResult) -> String {

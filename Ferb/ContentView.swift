@@ -10,6 +10,7 @@ struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
     @Query private var targets: [Target]
+    @Query private var planEntries: [PlanEntry]
     @State private var selectedTab: AppTab = .home
     @State private var homePath = NavigationPath()
     @State private var showingQuickUpdate = false
@@ -29,13 +30,22 @@ struct ContentView: View {
         )
     }
 
-    /// Changes when the number of active targets or of targets left to log changes, which is
-    /// everything the evening alert depends on. Logging, undoing, archiving or adding a target
-    /// all show up here, so no other screen has to tell the scheduler anything.
+    /// Changes when the active targets, the set of targets left to log, or the planned slots
+    /// change, which is everything the evening and plan alerts depend on. Logging, undoing,
+    /// archiving, adding a target or editing a slot all show up here, so no other screen has to
+    /// tell the scheduler anything.
     private var schedulingSignature: String {
         let active = targets.filter { $0.isActive() }.count
-        let left = targets.filter { $0.needsQuickLog() }.count
-        return "\(active)|\(left)"
+        let left = targets.filter { $0.needsQuickLog() }
+            .map { String(describing: $0.persistentModelID) }
+            .sorted()
+            .joined(separator: ",")
+        let plan = planEntries.map {
+            "\($0.weekday).\($0.startMinutes).\($0.durationMinutes).\($0.date?.timeIntervalSince1970 ?? 0).\($0.item?.name ?? "").\($0.item?.isArchived == true)"
+        }
+        .sorted()
+        .joined(separator: ",")
+        return "\(active)|\(left)|\(plan)"
     }
 
     var body: some View {

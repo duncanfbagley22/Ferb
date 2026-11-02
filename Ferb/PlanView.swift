@@ -9,10 +9,10 @@ private struct PlacedEntry: Identifiable {
     var id: PersistentIdentifier { entry.persistentModelID }
 }
 
-/// The weekly plan template: pick a weekday and see its slots on a day timeline. Add a slot
-/// with +, tap one to edit it, long-press to delete it. Slots overlapping in time sit side by
-/// side. With calendar access allowed, that weekday's next date shows your calendar events
-/// as soft bands behind the slots (arrows step to other weeks), so you can plan around them.
+/// The plan: pick a day and see its slots on a day timeline. Add a slot with +, tap one to
+/// edit it, long-press to delete it. Slots overlapping in time sit side by side. With calendar
+/// access allowed, the day's calendar events show as soft bands behind the slots (arrows step
+/// one day at a time), so you can plan around them.
 struct PlanView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.openURL) private var openURL
@@ -20,14 +20,12 @@ struct PlanView: View {
     @Query(sort: \PlanEntry.startMinutes) private var allEntries: [PlanEntry]
 
     private let calendarStore = CalendarEventsStore.shared
+    private var capacity = AlertCapacity.shared
 
-    @State private var weekday = Calendar.current.component(.weekday, from: .now)
-    /// How many weeks past the next occurrence of `weekday` the events are read from.
-    @State private var weekOffset = 0
+    /// The day being shown (start of day).
+    @State private var selectedDate = Calendar.current.startOfDay(for: .now)
     @State private var showingAdd = false
     @State private var editing: PlanEntry?
-    /// Set when jumping to a one-off slot's date, so the weekday change keeps its week offset.
-    @State private var pendingOffset: Int?
 
     private let hourHeight: CGFloat = 100
     private let labelWidth: CGFloat = 52
@@ -44,10 +42,16 @@ struct PlanView: View {
         }
     }
 
-    /// Weekday numbers starting from the user's first day of the week.
-    private var orderedWeekdays: [Int] {
-        let first = Calendar.current.firstWeekday
-        return (0..<7).map { (first - 1 + $0) % 7 + 1 }
+    /// The shown day's weekday number (1 = Sunday).
+    private var weekday: Int {
+        Calendar.current.component(.weekday, from: selectedDate)
+    }
+
+    /// The seven days of the week containing the shown day, from the user's first weekday.
+    private var weekDates: [Date] {
+        let calendar = Calendar.current
+        let start = calendar.dateInterval(of: .weekOfYear, for: selectedDate)?.start ?? selectedDate
+        return (0..<7).compactMap { calendar.date(byAdding: .day, value: $0, to: start) }
     }
 
     private var dayName: String {
@@ -60,18 +64,8 @@ struct PlanView: View {
         return max(0, min(5, earliest / 60 - 1))
     }
 
-    /// The date whose events are shown: today or the next time this weekday comes around,
-    /// plus any weeks stepped forward with the arrows.
-    private var planDate: Date {
-        let calendar = Calendar.current
-        let today = calendar.startOfDay(for: .now)
-        let next = calendar.nextDate(
-            after: today.addingTimeInterval(-1),
-            matching: DateComponents(weekday: weekday),
-            matchingPolicy: .nextTime
-        ) ?? today
-        return calendar.date(byAdding: .day, value: 7 * weekOffset, to: calendar.startOfDay(for: next)) ?? next
-    }
+    /// The date being shown.
+    private var planDate: Date { selectedDate }
 
     private var dateLabel: String {
         planDate.formatted(.dateTime.weekday(.wide).month(.abbreviated).day())
@@ -96,6 +90,16 @@ struct PlanView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.bottom, 8)
             }
+            if capacity.droppedPlan > 0 {
+                let count = capacity.droppedPlan
+                Text("\(count) plan alert\(count == 1 ? " isn't" : "s aren't") scheduled: over iOS's notification limit. See Settings → Alerts.")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal)
+                    .padding(.bottom, 8)
+            }
             if entries.isEmpty {
                 Text("Nothing planned for \(dayName). Tap + to add a slot.")
                     .font(.subheadline)
@@ -110,15 +114,20 @@ struct PlanView: View {
                         .padding(.vertical, 8)
                 }
                 .onAppear { proxy.scrollTo(startHour, anchor: .top) }
-                .onChange(of: weekday) {
-                    weekOffset = pendingOffset ?? 0
-                    pendingOffset = nil
+                .onChange(of: selectedDate) {
                     proxy.scrollTo(startHour, anchor: .top)
                 }
             }
         }
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                if calendarStore.isAuthorized {
+                    Menu {
+                        calendarMenu
+                    } label: {
+                        Label("Calendars", systemImage: "calendar")
+                    }
+                }
                 Button("Add slot", systemImage: "plus") { showingAdd = true }
             }
         }
@@ -136,40 +145,35 @@ struct PlanView: View {
 
     /// After saving a one-off slot, show the day it's on.
     private func jump(to date: Date) {
-        let calendar = Calendar.current
-        let target = calendar.startOfDay(for: date)
-        let day = calendar.component(.weekday, from: target)
-        let today = calendar.startOfDay(for: .now)
-        let first = calendar.nextDate(
-            after: today.addingTimeInterval(-1),
-            matching: DateComponents(weekday: day),
-            matchingPolicy: .nextTime
-        ) ?? today
-        let days = calendar.dateComponents([.day], from: first, to: target).day ?? 0
-        let offset = min(max(0, days / 7), 52)
-        if day == weekday {
-            weekOffset = offset
-        } else {
-            pendingOffset = offset
-            weekday = day
-        }
+        selectedDate = Calendar.current.startOfDay(for: date)
     }
 
-    // MARK: - Weekday strip
+    private func shiftDay(by days: Int) {
+        selectedDate = Calendar.current.date(byAdding: .day, value: days, to: selectedDate) ?? selectedDate
+    }
 
+    // MARK: - Week strip
+
+    /// The week containing the shown day, with real dates. Tap a day to show it.
     private var weekdayStrip: some View {
-        HStack(spacing: 6) {
-            ForEach(orderedWeekdays, id: \.self) { day in
-                let isSelected = day == weekday
-                Button { weekday = day } label: {
-                    Text(Calendar.current.shortWeekdaySymbols[day - 1])
-                        .font(.caption.weight(.semibold))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 8)
-                        .background(isSelected ? Color.accentColor : Color(.secondarySystemFill), in: Capsule())
-                        .foregroundStyle(isSelected ? Color.white : Color.primary)
+        let calendar = Calendar.current
+        return HStack(spacing: 6) {
+            ForEach(weekDates, id: \.self) { date in
+                let isSelected = calendar.isDate(date, inSameDayAs: selectedDate)
+                let isToday = calendar.isDateInToday(date)
+                Button { selectedDate = date } label: {
+                    VStack(spacing: 2) {
+                        Text(calendar.shortWeekdaySymbols[calendar.component(.weekday, from: date) - 1])
+                            .font(.caption2.weight(.semibold))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                        Text("\(calendar.component(.day, from: date))")
+                            .font(.subheadline.weight(.semibold))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 6)
+                    .background(isSelected ? Color.accentColor : Color(.secondarySystemFill), in: RoundedRectangle(cornerRadius: 12))
+                    .foregroundStyle(isSelected ? Color.white : (isToday ? Color.accentColor : Color.primary))
                 }
                 .buttonStyle(.plain)
             }
@@ -181,7 +185,7 @@ struct PlanView: View {
     // MARK: - Calendar bar
 
     /// Under the weekday strip: a button to allow calendar access, a note if it's off, or (once
-    /// allowed) the date being shown with week arrows, the calendar picker and all-day events.
+    /// allowed) the date being shown with day arrows and all-day events.
     @ViewBuilder
     private func calendarBar(_ events: [DayEvent]) -> some View {
         dateBar
@@ -230,28 +234,23 @@ struct PlanView: View {
         }
     }
 
-    /// The date being shown with week arrows (always visible, so one-off slots on later dates
-    /// can be reached), plus the calendar picker once calendar access is allowed.
+    /// The date being shown with day arrows (and a Today button once you've moved off today).
+    /// The calendar picker lives in the toolbar beside +.
     private var dateBar: some View {
         HStack(spacing: 8) {
-            Button { weekOffset -= 1 } label: { Image(systemName: "chevron.left") }
+            Button { shiftDay(by: -1) } label: { Image(systemName: "chevron.left") }
                 .buttonStyle(.borderless)
-                .disabled(weekOffset == 0)
-                .accessibilityLabel("Previous week")
+                .accessibilityLabel("Previous day")
             Text(dateLabel)
                 .font(.subheadline.weight(.medium))
-            Button { weekOffset += 1 } label: { Image(systemName: "chevron.right") }
+            Button { shiftDay(by: 1) } label: { Image(systemName: "chevron.right") }
                 .buttonStyle(.borderless)
-                .disabled(weekOffset >= 52)
-                .accessibilityLabel("Next week")
+                .accessibilityLabel("Next day")
             Spacer()
-            if calendarStore.isAuthorized {
-                Menu {
-                    calendarMenu
-                } label: {
-                    Label("Calendars", systemImage: "calendar")
-                        .font(.subheadline)
-                }
+            if !Calendar.current.isDateInToday(selectedDate) {
+                Button("Today") { selectedDate = Calendar.current.startOfDay(for: .now) }
+                    .font(.subheadline)
+                    .buttonStyle(.borderless)
             }
         }
         .padding(.horizontal)

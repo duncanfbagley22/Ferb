@@ -9,6 +9,10 @@ struct AlertsView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.openURL) private var openURL
 
+    /// The Plan alerts switch. Off until turned on; the scheduler reads the same setting.
+    @AppStorage(ReminderScheduler.planAlertsKey) private var planAlertsEnabled = false
+    private var capacity = AlertCapacity.shared
+
     /// Whether iOS currently lets the app send notifications.
     @State private var authStatus: UNAuthorizationStatus = .notDetermined
 
@@ -29,7 +33,44 @@ struct AlertsView: View {
     private var signature: [String] {
         reminders.map {
             "\($0.kind.rawValue)|\($0.label)|\($0.hour):\($0.minute)|\($0.weekdays.sorted())|\($0.isEnabled)"
+        } + ["plan|\(planAlertsEnabled)"]
+    }
+
+    /// Says so before plan alerts start going missing, and again once they have. Nil when
+    /// there's nothing to report.
+    private var capacityWarning: (title: String, detail: String, isProblem: Bool)? {
+        let budget = ReminderScheduler.pendingBudget
+        if capacity.droppedPlan > 0 {
+            let count = capacity.droppedPlan
+            return (
+                "\(count) plan alert\(count == 1 ? "" : "s") not scheduled",
+                "iOS lets an app keep 64 notifications waiting, and Ferb stays under \(budget). The latest plan alerts are left out and come back as earlier ones go off, each time you open the app. To fit them now, remove plan slots or turn off other alerts.",
+                true
+            )
         }
+        if capacity.failed > 0 {
+            let count = capacity.failed
+            return (
+                "iOS refused \(count) alert\(count == 1 ? "" : "s")",
+                "They weren't scheduled. Reopening the app tries again; if it keeps happening, check notification settings.",
+                true
+            )
+        }
+        if capacity.scheduled > ReminderScheduler.systemLimit {
+            return (
+                "Too many alerts",
+                "Start of day, end of day and custom alerts alone are over iOS's limit of 64, so some won't go off. Remove some custom alerts or days.",
+                true
+            )
+        }
+        if planAlertsEnabled, capacity.isNearLimit {
+            return (
+                "Close to the limit",
+                "\(capacity.scheduled) of \(budget) notifications are in use. Adding more plan slots or alerts may leave some out.",
+                false
+            )
+        }
+        return nil
     }
 
     var body: some View {
@@ -52,6 +93,25 @@ struct AlertsView: View {
                 }
             } footer: {
                 Text("Start of day is a nudge to open Today's focus. End of day only goes off if something is still untracked.")
+            }
+
+            Section {
+                Toggle("Plan alerts", isOn: $planAlertsEnabled)
+                if let warning = capacityWarning {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Label {
+                            Text(warning.title)
+                        } icon: {
+                            Image(systemName: warning.isProblem ? "exclamationmark.triangle.fill" : "info.circle.fill")
+                                .foregroundStyle(warning.isProblem ? Color.orange : Color.yellow)
+                        }
+                        Text(warning.detail)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            } footer: {
+                Text("Goes off when a planned slot starts (Calendar → Plan), only if that item still needs logging. Scheduled a few days ahead, so open the app now and then.")
             }
 
             Section("Custom") {
