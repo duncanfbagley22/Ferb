@@ -48,6 +48,9 @@ struct HomeView: View {
             .navigationDestination(for: Item.self) { item in
                 ItemSummaryView(item: item)
             }
+            .navigationDestination(for: TargetPagerRoute.self) { route in
+                TargetPagerView(route: route)
+            }
             .navigationDestination(for: Target.self) { target in
                 TargetDetailView(target: target)
             }

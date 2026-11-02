@@ -44,7 +44,7 @@ private struct AreaListPage: View {
         // Not a List: row swipe actions don't work inside a ScrollView + LazyVStack,
         // so logging, archiving and deleting use context menus.
         LazyVStack(alignment: .leading, spacing: 0) {
-            sectionHeader("\(area.title) · \(targets.count) targets")
+            sectionHeader("\(targets.count) \(targets.count == 1 ? "target" : "targets")")
             if targets.isEmpty {
                 emptyRow("No active targets")
             } else {
@@ -89,21 +89,24 @@ private struct AreaListPage: View {
             }
 
             if !items.isEmpty {
-                sectionHeader("Items without a target · \(items.count)")
-                ForEach(items) { item in
-                    ItemRow(item: item)
-                        .areaRow()
-                        .contextMenu {
-                            Button("Archive", systemImage: "archivebox") {
-                                item.isArchived = true
+                sectionHeader("\(items.count) \(items.count == 1 ? "item" : "items") without a target")
+                LazyVGrid(columns: cardColumns, spacing: 8) {
+                    ForEach(items) { item in
+                        ItemGridCard(item: item)
+                            .contextMenu {
+                                Button("Archive", systemImage: "archivebox") {
+                                    item.isArchived = true
+                                }
+                                Button(role: .destructive) {
+                                    itemToDelete = item
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
                             }
-                            Button(role: .destructive) {
-                                itemToDelete = item
-                            } label: {
-                                Label("Delete", systemImage: "trash")
-                            }
-                        }
+                    }
                 }
+                .padding(.horizontal)
+                .padding(.bottom, 16)
             }
         }
         .alert(
@@ -131,7 +134,7 @@ private struct AreaListPage: View {
     @ViewBuilder
     private func targetLink(for target: Target) -> some View {
         if let item = target.item {
-            NavigationLink(value: item) {
+            NavigationLink(value: TargetPagerRoute(area: area, startItem: item)) {
                 TargetGridCard(target: target)
             }
             .buttonStyle(.plain)

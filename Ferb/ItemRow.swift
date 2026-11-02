@@ -28,6 +28,44 @@ struct ItemRow: View {
     }
 }
 
+/// Compact card for an item with no active target, sized to sit in the same 3-across grid as
+/// `TargetGridCard`. Tap opens the item page. Gray with a dashed outline, since there's no
+/// status to tint it with.
+struct ItemGridCard: View {
+    let item: Item
+
+    private var targetCountText: String {
+        let count = item.targets.count
+        return count == 0 ? "No targets yet" : "\(count) target\(count == 1 ? "" : "s")"
+    }
+
+    var body: some View {
+        NavigationLink(value: item) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(item.name)
+                    .font(.footnote.weight(.semibold))
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+
+                Spacer(minLength: 0)
+
+                Text(targetCountText)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity, minHeight: 104, alignment: .topLeading)
+            .background(Color.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .strokeBorder(Color.secondary.opacity(0.4), style: StrokeStyle(lineWidth: 1, dash: [4]))
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 12))
+        }
+        .buttonStyle(.plain)
+    }
+}
+
 extension Item {
     /// Short description of how the item is measured, e.g. "Did it" or "Amount · steps · Target".
     var typeSummary: String {

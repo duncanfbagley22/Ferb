@@ -5,6 +5,8 @@ import SwiftData
 /// starting a new target or editing the item.
 struct ItemSummaryView: View {
     let item: Item
+    /// False when the page sits inside `TargetPagerView`, which sets the title for the selected page.
+    var showsTitle = true
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @State private var showingNewTarget = false
@@ -102,8 +104,7 @@ struct ItemSummaryView: View {
             }
             .padding()
         }
-        .navigationTitle(item.name)
-        .navigationBarTitleDisplayMode(.inline)
+        .modifier(ItemPageTitle(title: item.name, isShown: showsTitle))
         .onChange(of: item.isArchived) { _, archived in
             // Archiving from Item settings: leave the page of an item that's now hidden.
             if archived { dismiss() }
@@ -145,6 +146,22 @@ struct ItemSummaryView: View {
             Button("Cancel", role: .cancel) { targetToDelete = nil }
         } message: { target in
             Text("This also deletes its \(target.logs.count) log\(target.logs.count == 1 ? "" : "s"). Archive it instead to keep the history.")
+        }
+    }
+}
+
+/// The item name as the inline navigation title, unless a pager is supplying the title.
+private struct ItemPageTitle: ViewModifier {
+    let title: String
+    let isShown: Bool
+
+    func body(content: Content) -> some View {
+        if isShown {
+            content
+                .navigationTitle(title)
+                .navigationBarTitleDisplayMode(.inline)
+        } else {
+            content
         }
     }
 }
