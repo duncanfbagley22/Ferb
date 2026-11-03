@@ -30,6 +30,9 @@ final class Target {
     /// from earlier runs. Both clear when the timer is logged or reset.
     var timerStartedAt: Date?
     var timerAccumulated: Double = 0
+    /// "Not today" from Quick update: until this moment the target isn't offered for quick
+    /// logging (and the alerts that mirror it stay quiet). Optional, so old rows are fine.
+    var snoozedUntil: Date?
 
     @Relationship(deleteRule: .cascade, inverse: \Log.target)
     var logs: [Log] = []

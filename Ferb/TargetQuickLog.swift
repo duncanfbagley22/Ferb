@@ -6,6 +6,7 @@ extension Target {
     /// logged from the Record tab). The evening alert uses the same check, so the two agree.
     func needsQuickLog(asOf now: Date = .now, calendar: Calendar = .current) -> Bool {
         guard isActive(asOf: now, calendar: calendar), let item else { return false }
+        if let snoozedUntil, snoozedUntil > now { return false }
         if item.quantityDirection == .cap { return false }
         if item.effectiveMethod == .nfc { return false }
         let current = recentPeriods(1, asOf: now, calendar: calendar).first(where: \.isCurrent)
