@@ -48,6 +48,20 @@ struct ContentView: View {
         return "\(active)|\(left)|\(plan)"
     }
 
+    /// Opens Quick update for a tapped start-of-day / end-of-day alert, but only once the app is
+    /// active. The sheet is shown after a short pause so it doesn't collide with the app coming
+    /// to the foreground (or finishing launch), which made it flicker or get dropped.
+    private func openQuickUpdateIfRequested() {
+        guard router.quickUpdateRequested, scenePhase == .active else { return }
+        router.quickUpdateRequested = false
+        selectedTab = .home
+        homePath = NavigationPath()
+        Task {
+            try? await Task.sleep(for: .milliseconds(400))
+            showingQuickUpdate = true
+        }
+    }
+
     var body: some View {
         TabView(selection: tabSelection) {
             HomeView(path: $homePath, openFocus: { showingQuickUpdate = true })
@@ -72,17 +86,15 @@ struct ContentView: View {
         .sheet(isPresented: $showingQuickUpdate) {
             QuickInputView()
         }
-        .onChange(of: router.quickUpdateRequested, initial: true) { _, requested in
+        .onChange(of: router.quickUpdateRequested, initial: true) { _, _ in
             // A start-of-day or end-of-day alert was tapped: go to Home and open Today's focus.
-            guard requested else { return }
-            router.quickUpdateRequested = false
-            selectedTab = .home
-            homePath = NavigationPath()
-            showingQuickUpdate = true
+            openQuickUpdateIfRequested()
         }
         .onChange(of: scenePhase, initial: true) { _, phase in
             // Keep the scheduled notifications in step with the saved alerts.
             if phase == .active {
+                // A tap that arrived while the app was still coming forward is handled now.
+                openQuickUpdateIfRequested()
                 Task { await ReminderScheduler.refresh(in: modelContext, requestingPermission: false) }
             }
         }

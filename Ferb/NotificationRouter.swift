@@ -14,15 +14,16 @@ final class NotificationRouter: NSObject, UNUserNotificationCenterDelegate {
     /// Set when a start-of-day or end-of-day alert is tapped; cleared by whoever opens Quick update.
     var quickUpdateRequested = false
 
-    nonisolated func userNotificationCenter(
+    /// Runs on the main thread on purpose. When this was `nonisolated`, iOS finished the tap on a
+    /// background thread and UIKit's post-tap snapshot work crashed the app (SIGABRT).
+    @MainActor
+    func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse
     ) async {
         let identifier = response.notification.request.identifier
-        await MainActor.run {
-            if ReminderScheduler.opensQuickUpdate(identifier: identifier) {
-                quickUpdateRequested = true
-            }
+        if ReminderScheduler.opensQuickUpdate(identifier: identifier) {
+            quickUpdateRequested = true
         }
     }
 }
