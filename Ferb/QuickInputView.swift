@@ -4,7 +4,7 @@ import SwiftData
 private struct UndoEntry: Identifiable {
     enum Kind {
         case logged(Log)
-        case setAside
+        case setAside(String)
     }
     let id = UUID()
     let kind: Kind
@@ -25,6 +25,7 @@ struct QuickInputView: View {
     /// Skipped targets, in the order they were skipped; they sit behind everything else.
     @State private var skippedOrder: [PersistentIdentifier] = []
     @State private var undoEntry: UndoEntry?
+    @State private var showNotUntil = false
 
     @State private var dragX: CGFloat = 0
     @State private var dragY: CGFloat = 0
@@ -66,20 +67,34 @@ struct QuickInputView: View {
         skippedOrder.removeAll { $0 == target.persistentModelID }
     }
 
-    /// The ⋯ menu. Today it restores items set aside with "Not today"; more options can go here.
+    /// Days left in the target's current period, counting today. Nil when there's no current period.
+    private func daysLeftInPeriod(_ target: Target) -> Int? {
+        let calendar = Calendar.current
+        guard let current = target.recentPeriods(1).first(where: \.isCurrent) else { return nil }
+        return calendar.dateComponents([.day], from: calendar.startOfDay(for: .now), to: current.end).day
+    }
+
+    /// "tomorrow", or the weekday and date for a longer snooze (so a 7-day one isn't ambiguous).
+    private func returnText(for target: Target) -> String {
+        guard let until = target.snoozedUntil else { return "" }
+        if Calendar.current.isDateInTomorrow(until) { return "tomorrow" }
+        return until.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day())
+    }
+
+    /// The ⋯ menu. It restores items set aside with "Not until…" (or "Not today"); more options can go here.
     private var moreMenu: some View {
         Menu {
             let items = setAside
             if items.isEmpty {
-                Button("Nothing set aside today") {}
+                Button("Nothing set aside") {}
                     .disabled(true)
             } else {
-                Section("Set aside today") {
+                Section("Set aside") {
                     ForEach(items) { target in
                         Button {
                             restore(target)
                         } label: {
-                            Label("Restore \(target.item?.name ?? "item")", systemImage: "arrow.uturn.backward")
+                            Label("Restore \(target.item?.name ?? "item") (back \(returnText(for: target)))", systemImage: "arrow.uturn.backward")
                         }
                     }
                 }
@@ -125,6 +140,19 @@ struct QuickInputView: View {
             .overlay(alignment: .bottom) { undoBar }
             .animation(.default, value: undoEntry?.id)
             .onChange(of: draft.numberText) { warning = nil }
+            .confirmationDialog("Not until…", isPresented: $showNotUntil, titleVisibility: .visible) {
+                // Longer snoozes only when the target is back before its period ends
+                // (3 days needs 4+ days left, a week needs 8+); Tomorrow is always offered.
+                let left = queue.first.flatMap { daysLeftInPeriod($0) } ?? 1
+                Button("Tomorrow") { commitNotUntil(days: 1, label: "Not today") }
+                if left >= 4 {
+                    Button("In 3 days") { commitNotUntil(days: 3, label: "Not for 3 days") }
+                }
+                if left >= 8 {
+                    Button("Next week") { commitNotUntil(days: 7, label: "Not until next week") }
+                }
+                Button("Cancel", role: .cancel) {}
+            }
         }
     }
 
@@ -155,18 +183,18 @@ struct QuickInputView: View {
                 }
                 .accessibilityLabel("Later")
 
-                Button { commitNotToday() } label: {
+                Button { showNotUntil = true } label: {
                     VStack(spacing: 6) {
                         Image(systemName: "moon.zzz")
                             .font(.title2.weight(.semibold))
                             .frame(width: 64, height: 64)
                             .background(Color.gray.opacity(0.25), in: Circle())
-                        Text("Not today")
+                        Text("Not until…")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
                 }
-                .accessibilityLabel("Not today")
+                .accessibilityLabel("Not until")
 
                 Button { commitRight() } label: {
                     VStack(spacing: 6) {
@@ -319,6 +347,11 @@ struct QuickInputView: View {
     }
 
     private func commitNotToday() {
+        commitNotUntil(days: 1, label: "Not today")
+    }
+
+    /// Sets the target aside until the start of the day `days` from now (1 = tomorrow).
+    private func commitNotUntil(days: Int, label: String) {
         guard let target = queue.first, !isFlinging else { return }
         isFlinging = true
         withAnimation(.easeIn(duration: 0.18)) { dragY = -700 }
@@ -326,10 +359,10 @@ struct QuickInputView: View {
             try? await Task.sleep(for: .milliseconds(180))
             let calendar = Calendar.current
             target.snoozedUntil = calendar.date(
-                byAdding: .day, value: 1, to: calendar.startOfDay(for: .now)
+                byAdding: .day, value: days, to: calendar.startOfDay(for: .now)
             )
             try? modelContext.save()
-            undoEntry = UndoEntry(kind: .setAside, targetID: target.persistentModelID)
+            undoEntry = UndoEntry(kind: .setAside(label), targetID: target.persistentModelID)
             resetInputs()
             isFlinging = false
         }
@@ -386,7 +419,7 @@ struct QuickInputView: View {
             HStack(spacing: 16) {
                 switch entry.kind {
                 case .logged: Text("Logged")
-                case .setAside: Text("Not today")
+                case .setAside(let label): Text(label)
                 }
                 Button("Undo") { undo(entry) }
                     .fontWeight(.semibold)
