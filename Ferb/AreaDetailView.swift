@@ -37,6 +37,16 @@ private struct AreaListPage: View {
     @Environment(\.modelContext) private var modelContext
     @State private var itemToDelete: Item?
     @State private var targetToLog: Target?
+    /// Whether count targets on this page show their usual history row (true) or this period's time
+    /// dots (false). Remembered per area.
+    @AppStorage private var showCountHistory: Bool
+
+    init(area: Area, targets: [Target], items: [Item]) {
+        self.area = area
+        self.targets = targets
+        self.items = items
+        _showCountHistory = AppStorage(wrappedValue: false, "showCountHistory.\(String(describing: area))")
+    }
 
     private let cardColumns = Array(repeating: GridItem(.flexible(), spacing: 8), count: 3)
 
@@ -44,7 +54,7 @@ private struct AreaListPage: View {
         // Not a List: row swipe actions don't work inside a ScrollView + LazyVStack,
         // so logging, archiving and deleting use context menus.
         LazyVStack(alignment: .leading, spacing: 0) {
-            sectionHeader("\(targets.count) \(targets.count == 1 ? "target" : "targets")")
+            targetsHeader
             if targets.isEmpty {
                 emptyRow("No active targets")
             } else {
@@ -135,12 +145,38 @@ private struct AreaListPage: View {
     private func targetLink(for target: Target) -> some View {
         if let item = target.item {
             NavigationLink(value: TargetPagerRoute(area: area, startItem: item)) {
-                TargetGridCard(target: target)
+                TargetGridCard(target: target, showHistory: showCountHistory)
             }
             .buttonStyle(.plain)
         } else {
-            TargetGridCard(target: target)
+            TargetGridCard(target: target, showHistory: showCountHistory)
         }
+    }
+
+    private var hasCountTargets: Bool {
+        targets.contains { $0.timesGoal != nil }
+    }
+
+    /// The "N targets" header, with a Count / History switch on the right when the page has a count
+    /// target (like "3 times a week"): Count shows this period's time dots, History the past periods.
+    private var targetsHeader: some View {
+        HStack {
+            Text("\(targets.count) \(targets.count == 1 ? "target" : "targets")")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
+            Spacer()
+            if hasCountTargets {
+                Picker("Count targets show", selection: $showCountHistory) {
+                    Text("Count").tag(false)
+                    Text("History").tag(true)
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 150)
+            }
+        }
+        .padding(.horizontal)
+        .padding(.top, 16)
+        .padding(.bottom, 6)
     }
 
     private func sectionHeader(_ title: String) -> some View {

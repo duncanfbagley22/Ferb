@@ -3,6 +3,7 @@ import SwiftData
 
 struct SettingsView: View {
     @AppStorage("appearance") private var appearance: AppAppearance = .system
+    @AppStorage(HomeSettings.capHeldMinutesKey) private var capHeldMinutes = HomeSettings.defaultCapHeldMinutes
     @Environment(\.modelContext) private var modelContext
 
     /// Called just before data is deleted, so screens holding a deleted item or target can be closed.
@@ -26,6 +27,14 @@ struct SettingsView: View {
                         }
                     }
                     .pickerStyle(.segmented)
+                }
+
+                Section {
+                    DatePicker("Caps count as held at", selection: capHeldTime, displayedComponents: .hourAndMinute)
+                } header: {
+                    Text("Home")
+                } footer: {
+                    Text("On the Home cards, a cap that is still under its limit turns dark green at this time on the last day of its period.")
                 }
 
                 Section {
@@ -91,6 +100,21 @@ struct SettingsView: View {
                 Button("OK", role: .cancel) { deleteMessage = nil }
             }
         }
+    }
+
+    /// The cap-held time as a `Date` for the time picker; stored as minutes since midnight.
+    private var capHeldTime: Binding<Date> {
+        Binding(
+            get: {
+                Calendar.current.date(
+                    bySettingHour: capHeldMinutes / 60, minute: capHeldMinutes % 60, second: 0, of: .now
+                ) ?? .now
+            },
+            set: { newValue in
+                let parts = Calendar.current.dateComponents([.hour, .minute], from: newValue)
+                capHeldMinutes = (parts.hour ?? 22) * 60 + (parts.minute ?? 0)
+            }
+        )
     }
 
     /// Erases every record, then restores the built-in subareas and default alerts.

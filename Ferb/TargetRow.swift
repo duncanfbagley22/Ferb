@@ -5,6 +5,8 @@ import SwiftData
 /// dots for the most recent periods. The card is tinted by the target's status.
 struct TargetGridCard: View {
     let target: Target
+    /// For a count target: show the usual history row instead of this period's time dots.
+    var showHistory = false
 
     private let dotCount = 6
 
@@ -47,6 +49,15 @@ struct TargetGridCard: View {
         target.recentPeriods(dotCount)
     }
 
+    /// For a "3 times a week" target: how many of the current period's times are done, and the total.
+    private var timesProgress: (done: Int, total: Int)? {
+        guard let total = target.timesGoal,
+              let current = recentPeriods.last(where: \.isCurrent) else { return nil }
+        let logged = Int((current.loggedValue ?? 0).rounded(.down))
+        let done = current.result == .done ? total : min(total, max(0, logged))
+        return (done, total)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(target.item?.name ?? "Unknown item")
@@ -66,9 +77,25 @@ struct TargetGridCard: View {
 
             Spacer(minLength: 0)
 
-            HStack(spacing: 4) {
-                ForEach(recentPeriods) { period in
-                    dot(for: period.result)
+            if let progress = timesProgress, !showHistory {
+                // "3 times a week": one dot per time, filled as each is done this period. These are
+                // the card's only dots, in place of the history row.
+                HStack(spacing: 4) {
+                    ForEach(0..<progress.total, id: \.self) { index in
+                        if index < progress.done {
+                            Circle().fill(.green).frame(width: 8, height: 8)
+                        } else {
+                            Circle().strokeBorder(.secondary, lineWidth: 1).frame(width: 8, height: 8)
+                        }
+                    }
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("\(progress.done) of \(progress.total) times this period")
+            } else {
+                HStack(spacing: 4) {
+                    ForEach(recentPeriods) { period in
+                        dot(for: period.result)
+                    }
                 }
             }
         }
@@ -92,6 +119,19 @@ struct TargetGridCard: View {
 }
 
 extension Target {
+    /// The number of times in a "3 times a week" style goal, or nil for any other target: an amount in
+    /// Times (not a cap) with a whole goal of 2 to 6, since more dots than that are too small to read.
+    var timesGoal: Int? {
+        guard let item, item.trackingType == .quantity,
+              item.quantitySubtype == .amount,
+              item.quantityDirection != .cap,
+              item.unit == .times,
+              item.customUnit == nil,
+              let goal = value, goal >= 2, goal <= 6, goal == goal.rounded()
+        else { return nil }
+        return Int(goal)
+    }
+
     /// e.g. "Target · 10,000 steps ± 500" or "Cap · 60 min". Nil for binary items.
     var valueSummary: String? {
         guard let value, let item, item.trackingType == .quantity,

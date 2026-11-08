@@ -6,6 +6,7 @@ struct HomeView: View {
     /// Opens Today's focus (Quick update). The sheet itself lives in `ContentView`.
     var openFocus: () -> Void
     @Query(sort: \Target.startDate) private var targets: [Target]
+    @AppStorage(HomeSettings.capHeldMinutesKey) private var capHeldMinutes = HomeSettings.defaultCapHeldMinutes
     @State private var showingProfile = false
 
     private let columns = [
@@ -17,12 +18,23 @@ struct HomeView: View {
         NavigationStack(path: $path) {
             ScrollView {
                 VStack(spacing: 16) {
-                    LazyVGrid(columns: columns, spacing: 16) {
-                        ForEach(Area.allCases) { area in
-                            NavigationLink(value: area) {
-                                AreaCard(area: area, targets: targets.active(in: area))
+                    // Re-evaluated every minute so the cap threshold and midnight are picked up
+                    // while Home stays open.
+                    TimelineView(.everyMinute) { context in
+                        LazyVGrid(columns: columns, spacing: 16) {
+                            ForEach(Area.allCases) { area in
+                                NavigationLink(value: area) {
+                                    AreaCard(
+                                        area: area,
+                                        tiles: targets.homeTiles(
+                                            in: area,
+                                            asOf: context.date,
+                                            capHeldMinutes: capHeldMinutes
+                                        )
+                                    )
+                                }
+                                .buttonStyle(.plain)
                             }
-                            .buttonStyle(.plain)
                         }
                     }
 
@@ -78,27 +90,26 @@ private struct FocusBanner: View {
     }
 }
 
+/// An area card: the area name over a fixed 4 x 3 grid with one square per active target
+/// (see `HomeTiles.swift`). The tint is the area's overall status.
 private struct AreaCard: View {
     let area: Area
-    let targets: [Target]
+    let tiles: [HomeTile]
 
-    private var color: Color { targets.overallStatus.color }
+    private var color: Color { tiles.homeStatus.color }
 
     var body: some View {
-        VStack(spacing: 4) {
+        VStack(spacing: 10) {
             Text(area.title)
                 .font(.headline)
-            Text("\(targets.count)")
-                .font(.system(size: 48, weight: .bold, design: .rounded))
-                .monospacedDigit()
-            Text(targets.count == 1 ? "active target" : "active targets")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            HomeTileGrid(tiles: tiles)
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 24)
-        .padding(.horizontal)
+        .padding(.vertical, 16)
+        .padding(.horizontal, 14)
         .background(color.opacity(0.2), in: RoundedRectangle(cornerRadius: 16))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(area.title), \(tiles.filter(\.needsAttention).count) of \(tiles.count) targets need attention")
     }
 }
 
