@@ -1,6 +1,6 @@
 import Foundation
 
-enum PeriodResult {
+nonisolated enum PeriodResult {
     case done      // goal met
     case missed    // period is over and the goal wasn't met (or a cap was exceeded)
     case open      // current period, not settled yet
