@@ -14,7 +14,7 @@ private struct UndoEntry: Identifiable {
 /// End-of-day quick update, opened from the Home focus banner. One card per target that still
 /// needs logging: swipe right to log it, swipe left for later (it goes to the back
 /// of the stack), or swipe up / tap the moon button for "Not today" (hidden until tomorrow,
-/// here and in the alerts). Caps and NFC targets are left to Log now.
+/// here and in the alerts). NFC targets are left to Log now.
 struct QuickInputView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
@@ -39,7 +39,7 @@ struct QuickInputView: View {
     }
 
     private func isEligible(_ target: Target) -> Bool {
-        !handled.contains(target.persistentModelID) && target.needsQuickLog()
+        !handled.contains(target.persistentModelID) && target.needsQuickUpdate()
     }
 
     /// Cards still to do: fresh ones first, then skipped ones in the order they were skipped.
@@ -108,7 +108,7 @@ struct QuickInputView: View {
                     ContentUnavailableView(
                         "You're all caught up",
                         systemImage: "checkmark.circle",
-                        description: Text("Caps and NFC targets aren't shown here. Use Log now on the target.")
+                        description: Text("NFC targets aren't shown here. Use Log now on the target.")
                     )
                 }
             }

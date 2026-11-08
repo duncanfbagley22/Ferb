@@ -57,10 +57,12 @@ extension Target {
     /// - Time targets: yellow until met; red once a log misses the window (nothing more to do), then
     ///   dark green if met. (The latest log counts, so a period longer than a day only turns red on its
     ///   last day.)
-    /// - Cap: light green while under the limit, dark green once it's the last day of the period and
-    ///   `capHeldMinutes` has passed, red once broken.
+    /// - Cap: red once broken; gray if set aside with "Not today"; yellow until something is logged
+    ///   today; then light green while under the limit, and dark green once it's the last day of the
+    ///   period and `capHeldMinutes` has passed.
     /// - A target with a cadence longer than 2 days is gray until it's needed: planned today, or 2 or
-    ///   fewer days left in its period. A target set aside with "Not today" is gray too.
+    ///   fewer days left in its period. A target set aside with "Not today" is gray too, keeping its
+    ///   progress fill if it has some logged.
     func homeTile(
         asOf now: Date = .now,
         capHeldMinutes: Int = HomeSettings.defaultCapHeldMinutes,
@@ -74,6 +76,11 @@ extension Target {
 
         if item.quantityDirection == .cap {
             if current.result == .missed { return HomeTile(group: .red, needsAttention: true) }
+            if (snoozedUntil ?? .distantPast) > now { return HomeTile(group: .gray, needsAttention: false) }
+            // Nothing logged today: yellow, the same "still to do" rule Quick update uses for caps.
+            if !logs.contains(where: { calendar.isDate($0.completedAt, inSameDayAs: now) }) {
+                return HomeTile(group: .yellow, needsAttention: true)
+            }
             let minutes = calendar.component(.hour, from: now) * 60 + calendar.component(.minute, from: now)
             let held = daysLeft == 1 && minutes >= capHeldMinutes
             return HomeTile(group: held ? .darkGreen : .lightGreen, needsAttention: false)
@@ -107,11 +114,15 @@ extension Target {
         let attention = needed && !setAside
 
         if hasProgress {
+            let goal = value ?? 0
+            let fraction: Double? = goal > 0 ? min(1, max(0, (current.loggedValue ?? 0) / goal)) : nil
             if attention {
                 // Still wanted: stays yellow, filled with light green by how far along it is.
-                let goal = value ?? 0
-                let fraction: Double? = goal > 0 ? min(1, max(0, (current.loggedValue ?? 0) / goal)) : nil
                 return HomeTile(group: .yellow, needsAttention: true, progress: fraction)
+            }
+            if setAside {
+                // Set aside with "Not today": gray, but the progress fill stays.
+                return HomeTile(group: .gray, needsAttention: false, progress: fraction)
             }
             return HomeTile(group: .lightGreen, needsAttention: false)
         }
@@ -131,11 +142,14 @@ extension Collection where Element == Target {
 }
 
 extension Collection where Element == HomeTile {
-    /// The area's tint: nil with no targets, yellow while anything needs attention, otherwise green.
-    /// Same never-red rule as `overallStatus`.
+    /// The area's tint: nil with no targets. Yellow while any square is yellow (something is left to
+    /// do), otherwise red if any square is red (nothing left to do, but a miss or a broken cap),
+    /// otherwise green. Yellow wins over red, so a to-do is never hidden by an outcome.
     var homeStatus: TargetStatus? {
         guard !isEmpty else { return nil }
-        return contains { $0.needsAttention } ? .due : .done
+        if contains(where: { $0.group == .yellow }) { return .due }
+        if contains(where: { $0.group == .red }) { return .overdue }
+        return .done
     }
 }
 

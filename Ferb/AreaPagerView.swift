@@ -21,7 +21,7 @@ struct AreaPagerView: View {
             HStack(spacing: 8) {
                 ForEach(Area.allCases) { area in
                     Capsule()
-                        .fill(targets(in: area).overallStatus.color)
+                        .fill(allTargets.homeTiles(in: area).homeStatus.color)
                         .frame(width: area == selection ? 28 : 10, height: 10)
                         .onTapGesture { selection = area }
                 }
@@ -75,9 +75,5 @@ struct AreaPagerView: View {
         .sheet(isPresented: $showingAddTarget) {
             AddTargetView(limitToArea: selection)
         }
-    }
-
-    private func targets(in area: Area) -> [Target] {
-        allTargets.active(in: area)
     }
 }
