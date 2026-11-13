@@ -5,16 +5,156 @@ private struct UndoEntry: Identifiable {
     enum Kind {
         case logged(Log)
         case setAside(String)
+        case skipped(Date)
     }
     let id = UUID()
     let kind: Kind
     let targetID: PersistentIdentifier
 }
 
+/// The "Today" sheet in Quick update: what was logged, skipped or set aside today, each with an
+/// undo, so a mis-tap can be fixed after the undo bar is gone.
+private struct TodayReviewSheet: View {
+    @Environment(\.modelContext) private var modelContext
+    @Environment(\.dismiss) private var dismiss
+    @Query(sort: \Target.startDate) private var allTargets: [Target]
+    /// Tells Quick update an entry was undone, so that target's card can come back.
+    let onUndone: (PersistentIdentifier) -> Void
+
+    private var visibleTargets: [Target] { allTargets.filter { !$0.isHidden } }
+
+    private var todaysLogs: [Log] {
+        visibleTargets.flatMap(\.logs)
+            .filter { Calendar.current.isDateInToday($0.completedAt) }
+            .sorted { $0.completedAt > $1.completedAt }
+    }
+
+    private var todaysSkips: [Target] {
+        visibleTargets.filter { target in
+            (target.skippedOn ?? []).contains { Calendar.current.isDateInToday($0) }
+        }
+    }
+
+    private var setAside: [Target] {
+        visibleTargets.filter { ($0.snoozedUntil ?? .distantPast) > .now }
+    }
+
+    var body: some View {
+        let logs = todaysLogs, skips = todaysSkips, aside = setAside
+        return NavigationStack {
+            List {
+                if !logs.isEmpty {
+                    Section("Logged") {
+                        ForEach(logs) { log in
+                            row(log.target?.item?.name ?? "Item", detail: detail(for: log), action: "Undo") {
+                                undo(log)
+                            }
+                        }
+                    }
+                }
+                if !skips.isEmpty {
+                    Section("Skipped today (counts as missed)") {
+                        ForEach(skips) { target in
+                            row(target.item?.name ?? "Item", detail: target.cadenceTitle, action: "Undo") {
+                                unskip(target)
+                            }
+                        }
+                    }
+                }
+                if !aside.isEmpty {
+                    Section("Set aside") {
+                        ForEach(aside) { target in
+                            row(target.item?.name ?? "Item", detail: returnText(for: target), action: "Restore") {
+                                restore(target)
+                            }
+                        }
+                    }
+                }
+            }
+            .overlay {
+                if logs.isEmpty && skips.isEmpty && aside.isEmpty {
+                    ContentUnavailableView(
+                        "Nothing yet today",
+                        systemImage: "tray",
+                        description: Text("Logs, skips and set-asides from today show up here.")
+                    )
+                }
+            }
+            .navigationTitle("Today")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+    }
+
+    private func row(_ title: String, detail: String, action: String, perform: @escaping () -> Void) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                if !detail.isEmpty {
+                    Text(detail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Spacer()
+            Button(action, action: perform)
+                .buttonStyle(.borderless)
+        }
+    }
+
+    /// "3,000 steps · 2:15 PM" for amounts and durations, just the time for the rest.
+    private func detail(for log: Log) -> String {
+        var parts: [String] = []
+        if let target = log.target, let value = log.value {
+            let kind = target.logInputKind
+            if kind == .amount || kind == .duration || kind == .durationTimer {
+                parts.append("\(Target.formatted(value)) \(target.logUnitLabel)".trimmingCharacters(in: .whitespaces))
+            }
+        }
+        parts.append(log.completedAt.formatted(date: .omitted, time: .shortened))
+        return parts.joined(separator: " · ")
+    }
+
+    private func returnText(for target: Target) -> String {
+        guard let until = target.snoozedUntil else { return "" }
+        if Calendar.current.isDateInTomorrow(until) { return "Back tomorrow" }
+        return "Back " + until.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day())
+    }
+
+    private func undo(_ log: Log) {
+        guard let target = log.target else {
+            modelContext.delete(log)
+            try? modelContext.save()
+            return
+        }
+        let id = target.persistentModelID
+        target.remove(log, in: modelContext)
+        onUndone(id)
+    }
+
+    private func unskip(_ target: Target) {
+        let days = (target.skippedOn ?? []).filter { !Calendar.current.isDateInToday($0) }
+        target.skippedOn = days.isEmpty ? nil : days
+        try? modelContext.save()
+        onUndone(target.persistentModelID)
+    }
+
+    private func restore(_ target: Target) {
+        target.snoozedUntil = nil
+        try? modelContext.save()
+        onUndone(target.persistentModelID)
+    }
+}
+
 /// End-of-day quick update, opened from the Home focus banner. One card per target that still
 /// needs logging: swipe right to log it, swipe left for later (it goes to the back
-/// of the stack), or swipe up / tap the moon button for "Not today" (hidden until tomorrow,
-/// here and in the alerts). NFC targets are left to Log now.
+/// of the stack), or swipe up for "Not today" (hidden until tomorrow, here and in the alerts).
+/// Long-pressing Later offers "Not until…" (Tomorrow / In 3 days / Next week). X skips the period
+/// (counts as a miss; not for caps). NFC targets are left to Log now.
 struct QuickInputView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
@@ -25,7 +165,7 @@ struct QuickInputView: View {
     /// Skipped targets, in the order they were skipped; they sit behind everything else.
     @State private var skippedOrder: [PersistentIdentifier] = []
     @State private var undoEntry: UndoEntry?
-    @State private var showNotUntil = false
+    @State private var showToday = false
 
     @State private var dragX: CGFloat = 0
     @State private var dragY: CGFloat = 0
@@ -131,6 +271,12 @@ struct QuickInputView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
+                    Button { showToday = true } label: {
+                        Image(systemName: "clock.arrow.circlepath")
+                    }
+                    .accessibilityLabel("Today's activity")
+                }
+                ToolbarItem(placement: .topBarLeading) {
                     moreMenu
                 }
                 ToolbarItem(placement: .topBarTrailing) {
@@ -138,20 +284,30 @@ struct QuickInputView: View {
                 }
             }
             .overlay(alignment: .bottom) { undoBar }
+            .sheet(isPresented: $showToday) {
+                TodayReviewSheet { id in
+                    handled.remove(id)
+                    skippedOrder.removeAll { $0 == id }
+                }
+                .presentationDetents([.medium, .large])
+            }
             .animation(.default, value: undoEntry?.id)
             .onChange(of: draft.numberText) { warning = nil }
-            .confirmationDialog("Not until…", isPresented: $showNotUntil, titleVisibility: .visible) {
-                // Longer snoozes only when the target is back before its period ends
-                // (3 days needs 4+ days left, a week needs 8+); Tomorrow is always offered.
-                let left = queue.first.flatMap { daysLeftInPeriod($0) } ?? 1
-                Button("Tomorrow") { commitNotUntil(days: 1, label: "Not today") }
-                if left >= 4 {
-                    Button("In 3 days") { commitNotUntil(days: 3, label: "Not for 3 days") }
-                }
-                if left >= 8 {
-                    Button("Next week") { commitNotUntil(days: 7, label: "Not until next week") }
-                }
-                Button("Cancel", role: .cancel) {}
+        }
+    }
+
+    /// The long-press menu on Later. Longer snoozes only when the target is back before its
+    /// period ends (3 days needs 4+ days left, a week needs 8+); Tomorrow is always offered.
+    @ViewBuilder
+    private func notUntilMenu(for target: Target) -> some View {
+        let left = daysLeftInPeriod(target) ?? 1
+        Section("Not until…") {
+            Button("Tomorrow") { commitNotUntil(days: 1, label: "Not today") }
+            if left >= 4 {
+                Button("In 3 days") { commitNotUntil(days: 3, label: "Not for 3 days") }
+            }
+            if left >= 8 {
+                Button("Next week") { commitNotUntil(days: 7, label: "Not until next week") }
             }
         }
     }
@@ -172,7 +328,7 @@ struct QuickInputView: View {
             HStack(spacing: 40) {
                 Button { commitLeft() } label: {
                     VStack(spacing: 6) {
-                        Image(systemName: "forward.fill")
+                        Image(systemName: "arrow.right.to.line")
                             .font(.title2.weight(.semibold))
                             .frame(width: 64, height: 64)
                             .background(Color.blue.opacity(0.2), in: Circle())
@@ -181,20 +337,25 @@ struct QuickInputView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+                .contextMenu { notUntilMenu(for: top) }
                 .accessibilityLabel("Later")
+                .accessibilityHint("Hold for not until options")
 
-                Button { showNotUntil = true } label: {
+                Button { commitSkip() } label: {
                     VStack(spacing: 6) {
-                        Image(systemName: "moon.zzz")
+                        Image(systemName: "xmark")
                             .font(.title2.weight(.semibold))
                             .frame(width: 64, height: 64)
-                            .background(Color.gray.opacity(0.25), in: Circle())
-                        Text("Not until…")
+                            .background(Color.red.opacity(0.2), in: Circle())
+                        Text("Skip")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
                 }
-                .accessibilityLabel("Not until")
+                .disabled(top.item?.quantityDirection == .cap)
+                .opacity(top.item?.quantityDirection == .cap ? 0.35 : 1)
+                .accessibilityLabel("Skip")
+                .accessibilityHint("Counts this period as missed")
 
                 Button { commitRight() } label: {
                     VStack(spacing: 6) {
@@ -257,9 +418,10 @@ struct QuickInputView: View {
                     .foregroundStyle(.red)
                     .frame(maxWidth: .infinity)
             } else {
-                Text("Swipe right to log · left for later · up for not today")
+                Text("Swipe right to log · left for later · up for not today\nHold Later for more options")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
                     .frame(maxWidth: .infinity)
             }
         }
@@ -368,6 +530,23 @@ struct QuickInputView: View {
         }
     }
 
+    /// Skips the target's current period: it counts as missed (unless logs meet the goal anyway)
+    /// and isn't offered again this period. Caps can't be skipped.
+    private func commitSkip() {
+        guard let target = queue.first, !isFlinging, target.item?.quantityDirection != .cap else { return }
+        isFlinging = true
+        withAnimation(.easeIn(duration: 0.18)) { dragY = 700 }
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(180))
+            let day = Calendar.current.startOfDay(for: .now)
+            target.skippedOn = (target.skippedOn ?? []) + [day]
+            try? modelContext.save()
+            undoEntry = UndoEntry(kind: .skipped(day), targetID: target.persistentModelID)
+            resetInputs()
+            isFlinging = false
+        }
+    }
+
     private func log(_ target: Target, value: Double?) {
         let entry = target.record(value: value, in: modelContext)
         if target.logInputKind == .durationTimer {
@@ -392,6 +571,13 @@ struct QuickInputView: View {
         case .setAside:
             if let target = allTargets.first(where: { $0.persistentModelID == entry.targetID }) {
                 target.snoozedUntil = nil
+                try? modelContext.save()
+            }
+        case .skipped(let day):
+            if let target = allTargets.first(where: { $0.persistentModelID == entry.targetID }),
+               var days = target.skippedOn, let index = days.lastIndex(of: day) {
+                days.remove(at: index)
+                target.skippedOn = days.isEmpty ? nil : days
                 try? modelContext.save()
             }
         }
@@ -420,6 +606,7 @@ struct QuickInputView: View {
                 switch entry.kind {
                 case .logged: Text("Logged")
                 case .setAside(let label): Text(label)
+                case .skipped: Text("Skipped")
                 }
                 Button("Undo") { undo(entry) }
                     .fontWeight(.semibold)

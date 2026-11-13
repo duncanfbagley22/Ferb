@@ -10,6 +10,8 @@ extension Target {
         if item.quantityDirection == .cap { return false }
         if item.effectiveMethod == .nfc { return false }
         let current = recentPeriods(1, asOf: now, calendar: calendar).first(where: \.isCurrent)
+        // A non-cap period can only be missed while still running if it was skipped with X.
+        if current?.result == .missed { return false }
         // A time target gets one try per period: once a time is logged (even outside its
         // window), it isn't offered again.
         if item.quantitySubtype == .timeTarget, current?.loggedValue != nil { return false }

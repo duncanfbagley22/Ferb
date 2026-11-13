@@ -89,8 +89,11 @@ extension Target {
         switch current.result {
         case .done:
             return HomeTile(group: .darkGreen, needsAttention: false)
-        case .upcoming, .missed:
+        case .upcoming:
             return HomeTile(group: .gray, needsAttention: false)
+        case .missed:
+            // Only a skipped period is missed while still running: nothing left to do, but a miss.
+            return HomeTile(group: .red, needsAttention: true)
         case .open:
             break
         }

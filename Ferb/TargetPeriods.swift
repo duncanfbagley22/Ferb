@@ -122,9 +122,18 @@ extension Target {
             let isFuture = start > layout.today
             let isCurrent = !isFuture && layout.today < end
 
+            // Skipped with X in Quick update: missed straight away, unless the logs meet the
+            // goal anyway (logs win). Caps can't be skipped.
+            var skipDay: Date?
+            if !isCap, !isFuture, !satisfied {
+                skipDay = (skippedOn ?? []).filter { $0 >= start && $0 < end }.min()
+            }
+
             let result: PeriodResult
             if isFuture {
                 result = .upcoming
+            } else if skipDay != nil {
+                result = .missed
             } else if isCurrent {
                 // A cap can still be broken until the period ends; anything else can still be met.
                 if isCap { result = satisfied ? .open : .missed } else { result = satisfied ? .done : .open }
@@ -143,6 +152,7 @@ extension Target {
                     entries: entries,
                     result: result,
                     isCap: isCap,
+                    skipDay: skipDay,
                     lastDay: calendar.date(byAdding: .day, value: -1, to: end) ?? start,
                     calendar: calendar
                 )
@@ -155,6 +165,7 @@ extension Target {
         entries: [(date: Date, log: Log)],
         result: PeriodResult,
         isCap: Bool,
+        skipDay: Date?,
         lastDay: Date,
         calendar: Calendar
     ) -> Date? {
@@ -162,6 +173,8 @@ extension Target {
         case .upcoming, .open:
             return nil
         case .missed:
+            // A skipped period was settled the day it was skipped.
+            if let skipDay { return skipDay }
             // A cap is broken the day the running total passes the limit; anything else
             // is missed at the deadline.
             guard isCap else { return lastDay }

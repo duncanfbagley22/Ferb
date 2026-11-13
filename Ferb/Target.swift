@@ -33,6 +33,10 @@ final class Target {
     /// "Not today" from Quick update: until this moment the target isn't offered for quick
     /// logging (and the alerts that mirror it stay quiet). Optional, so old rows are fine.
     var snoozedUntil: Date?
+    /// Days (start of day) on which a period was skipped with X in Quick update. A period containing
+    /// one counts as missed right away, unless its logs meet the goal anyway. Caps can't be skipped.
+    /// Optional, so old rows are fine.
+    var skippedOn: [Date]?
 
     @Relationship(deleteRule: .cascade, inverse: \Log.target)
     var logs: [Log] = []
