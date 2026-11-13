@@ -1,10 +1,41 @@
 import SwiftUI
+import SwiftData
 
-/// Placeholder progress page: summary cards and a badge grid. Everything here is static
-/// until streaks and badge rules are designed.
+/// Progress page: summary cards read from the logs (streaks are per target, since there's no
+/// whole-day rule yet); the badge grid is still a static, locked placeholder until badge
+/// rules are designed.
 struct HistoryView: View {
-    private let cards = ["Current streak", "Done this week", "Longest streak"]
+    @Query private var allTargets: [Target]
+
     private let badgeRows = [3, 2, 3, 2]
+
+    private var cards: [SummaryCard] {
+        let targets = allTargets.filter { !$0.isHidden }
+        guard !targets.isEmpty else {
+            return ["Current streak", "Done this week", "Longest streak"].map {
+                SummaryCard(title: $0, value: "—", detail: nil)
+            }
+        }
+        let current = targets.bestCurrentStreak()
+        let longest = targets.bestLongestStreak()
+        return [
+            SummaryCard(
+                title: "Current streak",
+                value: current?.text ?? "0",
+                detail: current?.name
+            ),
+            SummaryCard(
+                title: "Done this week",
+                value: "\(targets.doneThisWeek())",
+                detail: nil
+            ),
+            SummaryCard(
+                title: "Longest streak",
+                value: longest?.text ?? "0",
+                detail: longest?.name
+            ),
+        ]
+    }
 
     var body: some View {
         NavigationStack {
@@ -12,8 +43,8 @@ struct HistoryView: View {
                 VStack(alignment: .leading, spacing: 24) {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 12) {
-                            ForEach(cards, id: \.self) { title in
-                                StatCard(title: title)
+                            ForEach(cards) { card in
+                                StatCard(card: card)
                             }
                         }
                     }
@@ -44,16 +75,32 @@ struct HistoryView: View {
     }
 }
 
-private struct StatCard: View {
+private struct SummaryCard: Identifiable {
     let title: String
+    let value: String
+    let detail: String?
+
+    var id: String { title }
+}
+
+private struct StatCard: View {
+    let card: SummaryCard
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("—")
+            Text(card.value)
                 .font(.title.bold())
-            Text(title)
+                .minimumScaleFactor(0.6)
+                .lineLimit(1)
+            Text(card.title)
                 .font(.caption)
                 .foregroundStyle(.secondary)
+            if let detail = card.detail {
+                Text(detail)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
         }
         .frame(width: 150, height: 90, alignment: .leading)
         .padding(.horizontal)

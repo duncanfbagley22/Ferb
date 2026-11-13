@@ -1,9 +1,9 @@
 import SwiftUI
 import SwiftData
 
-/// A single target: its goal, one numbered row per period with a done mark, and a
-/// placeholder block where stats and progress will go. The stats block is pinned to the
-/// bottom; only the period list above it scrolls.
+/// A single target: its goal, one numbered row per period with a done mark, and a stats
+/// block (streaks, completion, a per-period chart for amounts). The stats block is pinned to
+/// the bottom; only the period list above it scrolls.
 struct TargetDetailView: View {
     let target: Target
     @State private var showingEdit = false
@@ -52,13 +52,7 @@ struct TargetDetailView: View {
                 }
             }
 
-            RoundedRectangle(cornerRadius: 16)
-                .fill(Color.secondary.opacity(0.15))
-                .frame(height: 160)
-                .overlay {
-                    Text("Stats and progress will go here")
-                        .foregroundStyle(.secondary)
-                }
+            TargetStatsBlock(target: target, periods: periods)
                 .padding(.horizontal)
                 .padding(.top, 8)
                 .padding(.bottom)
