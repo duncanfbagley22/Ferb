@@ -1,6 +1,13 @@
 import SwiftUI
 import SwiftData
 
+/// Settings for Quick update's "Later today" option (set in Settings -> Quick update).
+enum QuickUpdateSettings {
+    /// Minutes since midnight at which a "Later today" target comes back.
+    static let laterTodayMinutesKey = "quickUpdateLaterTodayMinutes"
+    static let defaultLaterTodayMinutes = 21 * 60
+}
+
 private struct UndoEntry: Identifiable {
     enum Kind {
         case logged(Log)
@@ -121,6 +128,9 @@ private struct TodayReviewSheet: View {
 
     private func returnText(for target: Target) -> String {
         guard let until = target.snoozedUntil else { return "" }
+        if Calendar.current.isDateInToday(until) {
+            return "Back at " + until.formatted(date: .omitted, time: .shortened)
+        }
         if Calendar.current.isDateInTomorrow(until) { return "Back tomorrow" }
         return "Back " + until.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day())
     }
@@ -166,6 +176,7 @@ struct QuickInputView: View {
     @State private var skippedOrder: [PersistentIdentifier] = []
     @State private var undoEntry: UndoEntry?
     @State private var showToday = false
+    @AppStorage(QuickUpdateSettings.laterTodayMinutesKey) private var laterTodayMinutes = QuickUpdateSettings.defaultLaterTodayMinutes
 
     @State private var dragX: CGFloat = 0
     @State private var dragY: CGFloat = 0
@@ -217,6 +228,9 @@ struct QuickInputView: View {
     /// "tomorrow", or the weekday and date for a longer snooze (so a 7-day one isn't ambiguous).
     private func returnText(for target: Target) -> String {
         guard let until = target.snoozedUntil else { return "" }
+        if Calendar.current.isDateInToday(until) {
+            return "at " + until.formatted(date: .omitted, time: .shortened)
+        }
         if Calendar.current.isDateInTomorrow(until) { return "tomorrow" }
         return until.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day())
     }
@@ -302,6 +316,12 @@ struct QuickInputView: View {
     private func notUntilMenu(for target: Target) -> some View {
         let left = daysLeftInPeriod(target) ?? 1
         Section("Not until…") {
+            if let laterToday = laterTodayDate {
+                let time = laterToday.formatted(date: .omitted, time: .shortened)
+                Button("Later today (\(time))") {
+                    commitSnooze(until: laterToday, label: "Back at \(time)")
+                }
+            }
             Button("Tomorrow") { commitNotUntil(days: 1, label: "Not today") }
             if left >= 4 {
                 Button("In 3 days") { commitNotUntil(days: 3, label: "Not for 3 days") }
@@ -512,17 +532,31 @@ struct QuickInputView: View {
         commitNotUntil(days: 1, label: "Not today")
     }
 
+    /// Today at the "Later today" time from Settings, or nil once that time has passed.
+    private var laterTodayDate: Date? {
+        guard let date = Calendar.current.date(
+            bySettingHour: laterTodayMinutes / 60, minute: laterTodayMinutes % 60, second: 0, of: .now
+        ), date > .now else { return nil }
+        return date
+    }
+
     /// Sets the target aside until the start of the day `days` from now (1 = tomorrow).
     private func commitNotUntil(days: Int, label: String) {
+        let calendar = Calendar.current
+        guard let date = calendar.date(
+            byAdding: .day, value: days, to: calendar.startOfDay(for: .now)
+        ) else { return }
+        commitSnooze(until: date, label: label)
+    }
+
+    /// Sets the target aside until `date` (the alerts and Quick update both skip it until then).
+    private func commitSnooze(until date: Date, label: String) {
         guard let target = queue.first, !isFlinging else { return }
         isFlinging = true
         withAnimation(.easeIn(duration: 0.18)) { dragY = -700 }
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(180))
-            let calendar = Calendar.current
-            target.snoozedUntil = calendar.date(
-                byAdding: .day, value: days, to: calendar.startOfDay(for: .now)
-            )
+            target.snoozedUntil = date
             try? modelContext.save()
             undoEntry = UndoEntry(kind: .setAside(label), targetID: target.persistentModelID)
             resetInputs()

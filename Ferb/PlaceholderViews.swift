@@ -4,6 +4,7 @@ import SwiftData
 struct SettingsView: View {
     @AppStorage("appearance") private var appearance: AppAppearance = .system
     @AppStorage(HomeSettings.capHeldMinutesKey) private var capHeldMinutes = HomeSettings.defaultCapHeldMinutes
+    @AppStorage(QuickUpdateSettings.laterTodayMinutesKey) private var laterTodayMinutes = QuickUpdateSettings.defaultLaterTodayMinutes
     @Environment(\.modelContext) private var modelContext
 
     /// Called just before data is deleted, so screens holding a deleted item or target can be closed.
@@ -35,6 +36,14 @@ struct SettingsView: View {
                     Text("Home")
                 } footer: {
                     Text("On the Home cards, a cap that is still under its limit turns dark green at this time on the last day of its period.")
+                }
+
+                Section {
+                    DatePicker("Later today at", selection: laterTodayTime, displayedComponents: .hourAndMinute)
+                } header: {
+                    Text("Quick update")
+                } footer: {
+                    Text("Hold Later on a Quick update card and choose Later today to bring it back at this time. The option isn't offered once this time has passed.")
                 }
 
                 Section {
@@ -113,6 +122,21 @@ struct SettingsView: View {
             set: { newValue in
                 let parts = Calendar.current.dateComponents([.hour, .minute], from: newValue)
                 capHeldMinutes = (parts.hour ?? 22) * 60 + (parts.minute ?? 0)
+            }
+        )
+    }
+
+    /// The "Later today" time as a `Date` for the time picker; stored as minutes since midnight.
+    private var laterTodayTime: Binding<Date> {
+        Binding(
+            get: {
+                Calendar.current.date(
+                    bySettingHour: laterTodayMinutes / 60, minute: laterTodayMinutes % 60, second: 0, of: .now
+                ) ?? .now
+            },
+            set: { newValue in
+                let parts = Calendar.current.dateComponents([.hour, .minute], from: newValue)
+                laterTodayMinutes = (parts.hour ?? 21) * 60 + (parts.minute ?? 0)
             }
         )
     }
