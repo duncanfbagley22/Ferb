@@ -72,7 +72,7 @@ struct ItemSummaryView: View {
                         NavigationLink(value: target) {
                             TargetCard(
                                 target: target,
-                                color: (target.status() as TargetStatus?).color,
+                                color: target.homeTile().group.base,
                                 showStatus: true
                             )
                         }
@@ -182,7 +182,7 @@ private struct TargetCard: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             if showStatus {
-                Text(target.status().title)
+                Text(target.homeTile().group.title)
                     .font(.caption.bold())
             }
         }

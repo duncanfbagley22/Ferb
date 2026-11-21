@@ -136,8 +136,8 @@ struct TargetStatsBlock: View {
 
     private func color(for result: PeriodResult) -> Color {
         switch result {
-        case .done: .green
-        case .missed: .red
+        case .done: Color.goalMet
+        case .missed: Color.goalMissed
         case .open, .upcoming: .gray
         }
     }

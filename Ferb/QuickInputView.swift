@@ -350,8 +350,9 @@ struct QuickInputView: View {
                     VStack(spacing: 6) {
                         Image(systemName: "arrow.right.to.line")
                             .font(.title2.weight(.semibold))
+                            .foregroundStyle(.white)
                             .frame(width: 64, height: 64)
-                            .background(Color.blue.opacity(0.2), in: Circle())
+                            .background(Color.setAside, in: Circle())
                         Text("Later")
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -365,8 +366,9 @@ struct QuickInputView: View {
                     VStack(spacing: 6) {
                         Image(systemName: "xmark")
                             .font(.title2.weight(.semibold))
+                            .foregroundStyle(.white)
                             .frame(width: 64, height: 64)
-                            .background(Color.red.opacity(0.2), in: Circle())
+                            .background(Color.goalMissed, in: Circle())
                         Text("Skip")
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -381,8 +383,9 @@ struct QuickInputView: View {
                     VStack(spacing: 6) {
                         Image(systemName: "checkmark")
                             .font(.title2.weight(.semibold))
+                            .foregroundStyle(.white)
                             .frame(width: 64, height: 64)
-                            .background(Color.green.opacity(0.25), in: Circle())
+                            .background(Color.goalMet, in: Circle())
                         Text("Log")
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -450,7 +453,7 @@ struct QuickInputView: View {
         .background(RoundedRectangle(cornerRadius: 24).fill(Color(.secondarySystemBackground)))
         .overlay {
             RoundedRectangle(cornerRadius: 24)
-                .fill(dragY < 0 ? Color.gray : (dragX > 0 ? Color.green : Color.blue))
+                .fill(dragX > 0 ? Color.goalMet : Color.setAside)
                 .opacity(min(Double(max(abs(dragX), -dragY)) / 250, 0.35))
                 .allowsHitTesting(false)
         }

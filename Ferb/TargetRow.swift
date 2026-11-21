@@ -10,10 +10,8 @@ struct TargetGridCard: View {
 
     private let dotCount = 6
 
-    private var statusColor: Color {
-        let status: TargetStatus? = target.status()
-        return status.color
-    }
+    /// The card's tint follows the same state as the target's Home square.
+    private var statusColor: Color { target.homeTile().group.base }
 
     private var cadenceText: String {
         switch target.intervalDays {
@@ -83,7 +81,7 @@ struct TargetGridCard: View {
                 HStack(spacing: 4) {
                     ForEach(0..<progress.total, id: \.self) { index in
                         if index < progress.done {
-                            Circle().fill(.green).frame(width: 8, height: 8)
+                            Circle().fill(Color.goalMet).frame(width: 8, height: 8)
                         } else {
                             Circle().strokeBorder(.secondary, lineWidth: 1).frame(width: 8, height: 8)
                         }
@@ -109,9 +107,9 @@ struct TargetGridCard: View {
     private func dot(for result: PeriodResult) -> some View {
         switch result {
         case .done:
-            Circle().fill(.green).frame(width: 8, height: 8)
+            Circle().fill(Color.goalMet).frame(width: 8, height: 8)
         case .missed:
-            Circle().fill(.red).frame(width: 8, height: 8)
+            Circle().fill(Color.goalMissed).frame(width: 8, height: 8)
         default:
             Circle().strokeBorder(.secondary, lineWidth: 1).frame(width: 8, height: 8)
         }

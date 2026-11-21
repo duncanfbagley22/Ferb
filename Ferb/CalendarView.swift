@@ -42,11 +42,19 @@ private enum DayState {
     var tint: Color? {
         switch self {
         case .none: nil
-        case .future: Color.secondary.opacity(0.12)
-        case .open: Color.secondary.opacity(0.3)
-        case .done: Color.green.opacity(0.35)
-        case .missed: Color.red.opacity(0.35)
-        case .mixed: Color.orange.opacity(0.35)
+        case .future: Color.gray.opacity(0.35)
+        case .open, .mixed: Color.yellow
+        case .done: Color.goalMet
+        case .missed: Color.goalMissed
+        }
+    }
+
+    /// Day-number color that stays readable on the tint.
+    var textColor: Color {
+        switch self {
+        case .done, .missed: .white
+        case .open, .mixed: .black
+        case .none, .future: .primary
         }
     }
 }
@@ -238,7 +246,7 @@ struct CalendarView: View {
         return Button { selectedDay = day } label: {
             Text("\(calendar.component(.day, from: day))")
                 .font(.subheadline.weight(isSelected ? .bold : .regular))
-                .foregroundStyle(Color.primary)
+                .foregroundStyle(state.textColor)
                 .frame(maxWidth: .infinity)
                 .frame(height: 36)
                 .background(state.tint ?? Color.clear, in: RoundedRectangle(cornerRadius: 8))
@@ -413,9 +421,10 @@ struct CalendarView: View {
 
     private func color(for result: PeriodResult) -> Color {
         switch result {
-        case .done: .green
-        case .missed: .red
-        case .open, .upcoming: .gray
+        case .done: Color.goalMet
+        case .missed: Color.goalMissed
+        case .open: .yellow
+        case .upcoming: .gray
         }
     }
 }

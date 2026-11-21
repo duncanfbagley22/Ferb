@@ -11,29 +11,53 @@ enum HomeSettings {
 /// The color group a target's square falls into on a Home card. The declaration order is the
 /// order squares are sorted in (what needs attention first, then settled, then "not needed yet").
 enum TileGroup: Int, CaseIterable {
-    case red          // a cap that has been broken, or a time target logged outside its window
-    case yellow       // needed and not met; partly filled with light green when some is logged
-    case lightGreen   // progress on a target that isn't needed yet, or a cap still under its limit
-    case darkGreen    // met, or a cap that held
-    case gray         // not needed yet (long cadence), or set aside with "Not today"
+    case red        // a miss: skipped, a broken cap, or a time target logged outside its window
+    case yellow     // needed and not met
+    case green      // met, or a cap logged today and still under its limit
+    case blue       // set aside with "Not today"
+    case lightBlue  // not needed until later (long cadence)
+    case gray       // the period hasn't started
 
+    /// The tile's light tint. Green and red are the exceptions: they are the dark outcome colors
+    /// ("goal met" and a miss), because those tiles are filled all the way. Dark green is also the
+    /// fill drawn inside a partly done tile.
     var color: Color {
         switch self {
-        case .red: .red
-        case .yellow: .yellow
-        case .lightGreen: Color(red: 0.62, green: 0.86, blue: 0.62)
-        case .darkGreen: Color(red: 0.05, green: 0.52, blue: 0.22)
+        case .red: Color.goalMissed
+        case .yellow: Color.yellow.opacity(0.55)
+        case .green: Color.goalMet
+        case .blue: Color.setAside.opacity(0.5)
+        case .lightBlue: Color(red: 0.55, green: 0.80, blue: 1.0).opacity(0.5)
         case .gray: Color.gray.opacity(0.35)
         }
     }
 
-    /// Color for the number inside a merged circle.
-    var textColor: Color {
+    /// The group's saturated color, used at low opacity for card backgrounds on other screens.
+    var base: Color {
         switch self {
-        case .red, .darkGreen: .white
-        case .yellow, .lightGreen, .gray: .primary
+        case .red: .goalMissed
+        case .yellow: .yellow
+        case .green: .goalMet
+        case .blue: .setAside
+        case .lightBlue: Color(red: 0.55, green: 0.80, blue: 1.0)
+        case .gray: .gray
         }
     }
+
+    /// What the state is called on the item page.
+    var title: String {
+        switch self {
+        case .red: "Missed"
+        case .yellow: "Due"
+        case .green: "Done"
+        case .blue: "Set aside"
+        case .lightBlue: "Not needed yet"
+        case .gray: "Not started"
+        }
+    }
+
+    /// Color for the number inside a merged circle.
+    var textColor: Color { (self == .green || self == .red) ? .white : .primary }
 }
 
 /// One target's state on Home.
@@ -42,53 +66,50 @@ struct HomeTile {
     /// Whether this target should hold its area's tint at yellow. A long-cadence target that
     /// isn't needed yet doesn't, and neither does a cap that is still under its limit.
     let needsAttention: Bool
-    /// How far along a partly done target is (0 to 1), drawn as a light green fill inside a
-    /// yellow square. Nil for everything else.
+    /// How far along a partly done target is (0 to 1), drawn as a dark green fill inside the
+    /// tile. Nil for everything else (a green tile is simply filled all the way).
     var progress: Double? = nil
 }
 
 extension Target {
     /// The square this target gets on a Home card.
     ///
-    /// - Binary: yellow until done, then dark green.
+    /// - Binary: yellow until done, then green (filled).
     /// - Amount / duration: yellow with nothing logged. Once some is logged it stays yellow while it is
-    ///   still needed, filled with light green by how far along it is; dark green when met. If it isn't
-    ///   needed yet (long cadence), progress shows as solid light green instead.
+    ///   still needed, filled with dark green by how far along it is; green when met. If it isn't
+    ///   needed yet (long cadence), it is light blue with the same fill.
     /// - Time targets: yellow until met; red once a log misses the window (nothing more to do), then
-    ///   dark green if met. (The latest log counts, so a period longer than a day only turns red on its
+    ///   green if met. (The latest log counts, so a period longer than a day only turns red on its
     ///   last day.)
-    /// - Cap: red once broken; gray if set aside with "Not today"; yellow until something is logged
-    ///   today; then light green while under the limit, and dark green once it's the last day of the
-    ///   period and `capHeldMinutes` has passed.
-    /// - A target with a cadence longer than 2 days is gray until it's needed: planned today, or 2 or
-    ///   fewer days left in its period. A target set aside with "Not today" is gray too, keeping its
-    ///   progress fill if it has some logged.
+    /// - Cap: red once broken; blue if set aside with "Not today"; yellow until something is logged
+    ///   today; then green. (`capHeldMinutes` no longer changes the color.)
+    /// - A target with a cadence longer than 2 days is light blue until it's needed: planned today, or
+    ///   2 or fewer days left in its period. A target set aside with "Not today" is blue, keeping its
+    ///   progress fill if it has some logged. A period that hasn't started is gray.
     func homeTile(
         asOf now: Date = .now,
         capHeldMinutes: Int = HomeSettings.defaultCapHeldMinutes,
         calendar: Calendar = .current
     ) -> HomeTile {
         guard let item, let current = recentPeriods(1, asOf: now, calendar: calendar).first(where: \.isCurrent) else {
-            return HomeTile(group: .darkGreen, needsAttention: false)
+            return HomeTile(group: .green, needsAttention: false)
         }
         let today = calendar.startOfDay(for: now)
         let daysLeft = max(1, calendar.dateComponents([.day], from: today, to: current.end).day ?? 1)
 
         if item.quantityDirection == .cap {
             if current.result == .missed { return HomeTile(group: .red, needsAttention: true) }
-            if (snoozedUntil ?? .distantPast) > now { return HomeTile(group: .gray, needsAttention: false) }
+            if (snoozedUntil ?? .distantPast) > now { return HomeTile(group: .blue, needsAttention: false) }
             // Nothing logged today: yellow, the same "still to do" rule Quick update uses for caps.
             if !logs.contains(where: { calendar.isDate($0.completedAt, inSameDayAs: now) }) {
                 return HomeTile(group: .yellow, needsAttention: true)
             }
-            let minutes = calendar.component(.hour, from: now) * 60 + calendar.component(.minute, from: now)
-            let held = daysLeft == 1 && minutes >= capHeldMinutes
-            return HomeTile(group: held ? .darkGreen : .lightGreen, needsAttention: false)
+            return HomeTile(group: .green, needsAttention: false)
         }
 
         switch current.result {
         case .done:
-            return HomeTile(group: .darkGreen, needsAttention: false)
+            return HomeTile(group: .green, needsAttention: false)
         case .upcoming:
             return HomeTile(group: .gray, needsAttention: false)
         case .missed:
@@ -120,16 +141,18 @@ extension Target {
             let goal = value ?? 0
             let fraction: Double? = goal > 0 ? min(1, max(0, (current.loggedValue ?? 0) / goal)) : nil
             if attention {
-                // Still wanted: stays yellow, filled with light green by how far along it is.
+                // Still wanted: stays yellow, filled with dark green by how far along it is.
                 return HomeTile(group: .yellow, needsAttention: true, progress: fraction)
             }
             if setAside {
-                // Set aside with "Not today": gray, but the progress fill stays.
-                return HomeTile(group: .gray, needsAttention: false, progress: fraction)
+                // Set aside with "Not today": blue, but the progress fill stays.
+                return HomeTile(group: .blue, needsAttention: false, progress: fraction)
             }
-            return HomeTile(group: .lightGreen, needsAttention: false)
+            // Not needed until later: light blue, with the progress fill.
+            return HomeTile(group: .lightBlue, needsAttention: false, progress: fraction)
         }
-        return HomeTile(group: attention ? .yellow : .gray, needsAttention: attention)
+        if attention { return HomeTile(group: .yellow, needsAttention: true) }
+        return HomeTile(group: setAside ? .blue : .lightBlue, needsAttention: false)
     }
 }
 
@@ -172,7 +195,7 @@ struct PlacedTile: Identifiable {
 
 /// Every card has the same 4 x 3 grid of slots, so the four cards are always the same size.
 /// With up to 12 targets each gets its own square. With more, whole color groups merge into
-/// circles with a count inside, settled ones first (dark green, gray, light green), then yellow,
+/// circles with a count inside, settled ones first (green, gray, light blue, blue), then yellow,
 /// then red. A group of 5 or more becomes a big circle (2 x 2 slots, at most two per card); a
 /// smaller group, or any group once both big circles are used, becomes a one-slot circle.
 enum HomeTileLayout {
@@ -189,7 +212,7 @@ enum HomeTileLayout {
         var merged: [TileGroup: Bool] = [:]
         var cells = tiles.count
         var bigUsed = 0
-        for group in [TileGroup.darkGreen, .gray, .lightGreen, .yellow, .red] {
+        for group in [TileGroup.green, .gray, .lightBlue, .blue, .yellow, .red] {
             guard cells > capacity else { break }
             let n = counts[group, default: 0]
             guard n >= 2 else { continue }
@@ -281,7 +304,7 @@ private struct HomeTileShape: View {
                     .overlay(alignment: .bottom) {
                         if let progress = tile.progress {
                             GeometryReader { geo in
-                                TileGroup.lightGreen.color
+                                Color.goalMet
                                     .frame(height: geo.size.height * progress)
                                     .frame(maxHeight: .infinity, alignment: .bottom)
                             }

@@ -15,13 +15,26 @@ extension Collection where Element == Target {
     }
 }
 
+extension Color {
+    /// The one dark green that means "goal met" everywhere in the app (Home's dark green tile,
+    /// status tints, dots, calendar). Change it here to change them all.
+    static let goalMet = Color(red: 0.05, green: 0.52, blue: 0.22)
+
+    /// The matching dark red for a miss (skipped period, broken cap, time target outside its window).
+    static let goalMissed = Color(red: 0.80, green: 0.04, blue: 0.07)
+
+    /// The blue for "set aside" / Later. Home's blue tile, the card tints and the Quick update
+    /// buttons all read it, so changing it here changes them all.
+    static let setAside = Color.blue
+}
+
 extension Optional where Wrapped == TargetStatus {
     var color: Color {
         switch self {
         case nil: .gray
-        case .done?: .green
+        case .done?: .goalMet
         case .due?: .yellow
-        case .overdue?: .red
+        case .overdue?: .goalMissed
         }
     }
 }
