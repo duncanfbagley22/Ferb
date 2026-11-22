@@ -37,6 +37,9 @@ final class Target {
     /// one counts as missed right away, unless its logs meet the goal anyway. Caps can't be skipped.
     /// Optional, so old rows are fine.
     var skippedOn: [Date]?
+    /// Minutes since midnight. When set, the target stays out of Quick update each day until
+    /// this time (like "Later today", but standing). Nil = always shown. Optional, so old rows are fine.
+    var showFromMinutes: Int?
 
     @Relationship(deleteRule: .cascade, inverse: \Log.target)
     var logs: [Log] = []

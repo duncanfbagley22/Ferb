@@ -102,6 +102,10 @@ extension Target {
             if (snoozedUntil ?? .distantPast) > now { return HomeTile(group: .blue, needsAttention: false) }
             // Nothing logged today: yellow, the same "still to do" rule Quick update uses for caps.
             if !logs.contains(where: { calendar.isDate($0.completedAt, inSameDayAs: now) }) {
+                // Before its daily show-from time it waits, like a set-aside cap.
+                if isBeforeShowTime(asOf: now, calendar: calendar) {
+                    return HomeTile(group: .blue, needsAttention: false)
+                }
                 return HomeTile(group: .yellow, needsAttention: true)
             }
             return HomeTile(group: .green, needsAttention: false)
@@ -134,7 +138,9 @@ extension Target {
             return entry.weekday == weekday
         }
         let needed = intervalDays <= 2 || plannedToday || daysLeft <= 2
-        let setAside = (snoozedUntil ?? .distantPast) > now
+        // Before its daily show-from time, a needed target waits like a set-aside one (blue).
+        let heldForTime = needed && isBeforeShowTime(asOf: now, calendar: calendar)
+        let setAside = (snoozedUntil ?? .distantPast) > now || heldForTime
         let attention = needed && !setAside
 
         if hasProgress {

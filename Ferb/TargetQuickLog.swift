@@ -7,6 +7,7 @@ extension Target {
     func needsQuickLog(asOf now: Date = .now, calendar: Calendar = .current) -> Bool {
         guard isActive(asOf: now, calendar: calendar), let item else { return false }
         if let snoozedUntil, snoozedUntil > now { return false }
+        if isBeforeShowTime(asOf: now, calendar: calendar) { return false }
         if item.quantityDirection == .cap { return false }
         if item.effectiveMethod == .nfc { return false }
         let current = recentPeriods(1, asOf: now, calendar: calendar).first(where: \.isCurrent)
@@ -16,6 +17,14 @@ extension Target {
         // window), it isn't offered again.
         if item.quantitySubtype == .timeTarget, current?.loggedValue != nil { return false }
         return current?.result != .done
+    }
+
+    /// True while the clock is before this target's daily "show from" time. Nil time = never.
+    func isBeforeShowTime(asOf now: Date = .now, calendar: Calendar = .current) -> Bool {
+        guard let showFromMinutes else { return false }
+        let parts = calendar.dateComponents([.hour, .minute], from: now)
+        let minutes = (parts.hour ?? 0) * 60 + (parts.minute ?? 0)
+        return minutes < showFromMinutes
     }
 
     /// Whether Quick update (not the alerts) offers this target. Same as `needsQuickLog`, except
@@ -28,6 +37,7 @@ extension Target {
         }
         guard isActive(asOf: now, calendar: calendar) else { return false }
         if let snoozedUntil, snoozedUntil > now { return false }
+        if isBeforeShowTime(asOf: now, calendar: calendar) { return false }
         if item.effectiveMethod == .nfc { return false }
         return !logs.contains { calendar.isDate($0.completedAt, inSameDayAs: now) }
     }

@@ -27,6 +27,8 @@ struct AddTargetView: View {
     @State private var timeOfDay = Date.now
     @State private var timeDirection: TimeDirection = .either
     @State private var showingNewFromThis = false
+    @State private var showFromEnabled = false
+    @State private var showFromTime = AddTargetView.date(fromMinutes: 21 * 60)
 
     /// Create mode. Pass `basedOn` to pre-fill the form from an existing target (starting today).
     init(
@@ -52,6 +54,8 @@ struct AddTargetView: View {
             _toleranceMode = State(initialValue: fields.toleranceMode)
             _timeOfDay = State(initialValue: fields.timeOfDay)
             _timeDirection = State(initialValue: fields.timeDirection)
+            _showFromEnabled = State(initialValue: fields.showFromEnabled)
+            _showFromTime = State(initialValue: fields.showFromTime)
         }
     }
 
@@ -71,6 +75,8 @@ struct AddTargetView: View {
         _toleranceMode = State(initialValue: fields.toleranceMode)
         _timeOfDay = State(initialValue: fields.timeOfDay)
         _timeDirection = State(initialValue: fields.timeDirection)
+        _showFromEnabled = State(initialValue: fields.showFromEnabled)
+        _showFromTime = State(initialValue: fields.showFromTime)
     }
 
     private struct Fields {
@@ -82,10 +88,26 @@ struct AddTargetView: View {
         var toleranceMode: ToleranceMode
         var timeDirection: TimeDirection
         var timeOfDay: Date
+        var showFromEnabled: Bool
+        var showFromTime: Date
     }
 
     /// Starting tolerance (minutes) for new time targets, so "on time" isn't one exact minute.
     private static let defaultTimeTolerance = "30"
+
+    /// Today at the given minutes since midnight (only the clock part is used).
+    @MainActor
+    private static func date(fromMinutes minutes: Int) -> Date {
+        let parts = DateComponents(hour: (minutes / 60) % 24, minute: minutes % 60)
+        return Calendar.current.date(from: parts) ?? .now
+    }
+
+    /// Minutes since midnight for the clock part of a date.
+    @MainActor
+    private static func minutes(from date: Date) -> Int {
+        let parts = Calendar.current.dateComponents([.hour, .minute], from: date)
+        return (parts.hour ?? 0) * 60 + (parts.minute ?? 0)
+    }
 
     @MainActor
     private static func plainNumber(_ number: Double) -> String {
@@ -113,7 +135,9 @@ struct AddTargetView: View {
             toleranceText: target.tolerance.map(plainNumber) ?? "",
             toleranceMode: target.toleranceMode,
             timeDirection: target.timeDirection,
-            timeOfDay: timeOfDay
+            timeOfDay: timeOfDay,
+            showFromEnabled: target.showFromMinutes != nil,
+            showFromTime: date(fromMinutes: target.showFromMinutes ?? 21 * 60)
         )
     }
 
@@ -294,6 +318,17 @@ struct AddTargetView: View {
                     .disabled(isLocked)
                 }
 
+                Section {
+                    Toggle("Only show from a set time", isOn: $showFromEnabled)
+                    if showFromEnabled {
+                        DatePicker("Show from", selection: $showFromTime, displayedComponents: .hourAndMinute)
+                    }
+                } header: {
+                    Text("Quick update")
+                } footer: {
+                    Text("Until this time each day, the target stays out of Quick update and shows blue on Home, like Later today. Doesn't affect past results.")
+                }
+
                 if isLocked {
                     Section {
                         Button("Start a new target from this one", systemImage: "arrow.triangle.2.circlepath") {
@@ -366,6 +401,7 @@ struct AddTargetView: View {
             toleranceMode: quantitySubtype == .timeTarget ? .absolute : toleranceMode,
             timeDirection: quantitySubtype == .timeTarget ? timeDirection : .either
         )
+        target.showFromMinutes = showFromEnabled ? Self.minutes(from: showFromTime) : nil
         modelContext.insert(target)
         onSaved?()
         dismiss()
@@ -374,6 +410,8 @@ struct AddTargetView: View {
     private func saveEdits(to target: Target) {
         // The end of the window can always move (never to before the last logged day).
         target.durationDays = isOngoing ? nil : max(durationDays, minDuration)
+        // The daily show-from time never changes past results, so it's editable even with history.
+        target.showFromMinutes = showFromEnabled ? Self.minutes(from: showFromTime) : nil
 
         // Frequency and goal only change while there's no history to re-judge.
         guard !isLocked else { return }
