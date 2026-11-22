@@ -146,30 +146,43 @@ final class LogDraft {
 struct TargetLogInputs: View {
     let target: Target
     @Bindable var draft: LogDraft
+    /// Run when a yes/no target is completed by holding its check (nil = the check is display only).
+    var onComplete: (() -> Void)? = nil
     @Environment(\.modelContext) private var modelContext
 
     var body: some View {
         switch target.logInputKind {
         case .check:
             let avoided = target.item?.binarySubtype == .avoidedIt
+            let prompt = avoided ? "Did you avoid it?" : "Did you do it?"
+            if let onComplete {
+                HoldToCompleteCheck(prompt: prompt, onComplete: onComplete)
+            } else {
+                VStack(spacing: 12) {
+                    Image(systemName: "checkmark.circle")
+                        .font(.system(size: 64))
+                        .foregroundStyle(.secondary)
+                    Text(prompt)
+                        .font(.headline)
+                }
+                .frame(maxWidth: .infinity)
+            }
+
+        case .amount, .duration:
             VStack(spacing: 12) {
-                Image(systemName: "checkmark.circle")
-                    .font(.system(size: 64))
-                    .foregroundStyle(.secondary)
-                Text(avoided ? "Did you avoid it?" : "Did you do it?")
-                    .font(.headline)
+                AmountDial(target: target, draft: draft, step: step)
+                numberField(
+                    unit: [target.logUnitLabel, "to add"].filter { !$0.isEmpty }.joined(separator: " "),
+                    prompt: "0"
+                )
             }
             .frame(maxWidth: .infinity)
 
-        case .amount, .duration:
-            numberField(unit: target.logUnitLabel, prompt: "0")
-
         case .durationTimer:
-            VStack(spacing: 16) {
+            VStack(spacing: 12) {
                 TimelineView(.periodic(from: .now, by: 1)) { context in
                     let seconds = target.timerSeconds(at: context.date)
-                    let total = seconds / 60 + (draft.number ?? 0)
-                    VStack(spacing: 8) {
+                    VStack(spacing: 12) {
                         HStack(spacing: 16) {
                             Button { target.toggleTimer(in: modelContext) } label: {
                                 Image(systemName: target.timerStartedAt == nil ? "play.fill" : "pause.fill")
@@ -183,9 +196,8 @@ struct TargetLogInputs: View {
                             Text(clockString(seconds))
                                 .font(.system(size: 36, weight: .bold, design: .monospaced))
                         }
-                        Text("\(Int(total.rounded())) min total")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                        // The ring counts the running timer on top of any typed minutes.
+                        AmountDial(target: target, draft: draft, extraAmount: seconds / 60, step: step, size: 140)
                     }
                 }
                 numberField(unit: "min to add", prompt: "0")
@@ -205,15 +217,15 @@ struct TargetLogInputs: View {
             Button { adjust(by: -step) } label: {
                 Image(systemName: "chevron.left")
                     .font(.title2)
-                    .frame(width: 44, height: 64)
+                    .frame(width: 44, height: 48)
             }
             .buttonStyle(.bordered)
 
-            VStack(spacing: 4) {
+            VStack(spacing: 2) {
                 TextField(prompt, text: $draft.numberText)
                     .keyboardType(.decimalPad)
                     .multilineTextAlignment(.center)
-                    .font(.system(size: 44, weight: .bold))
+                    .font(.system(size: 32, weight: .bold))
                 if !unit.isEmpty {
                     Text(unit)
                         .foregroundStyle(.secondary)
@@ -224,7 +236,7 @@ struct TargetLogInputs: View {
             Button { adjust(by: step) } label: {
                 Image(systemName: "chevron.right")
                     .font(.title2)
-                    .frame(width: 44, height: 64)
+                    .frame(width: 44, height: 48)
             }
             .buttonStyle(.bordered)
         }

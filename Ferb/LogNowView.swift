@@ -20,15 +20,10 @@ struct LogNowView: View {
                     Text([target.cadenceTitle, target.valueSummary].compactMap { $0 }.joined(separator: " · "))
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
-                    if let soFar = target.loggedSoFarText {
-                        Text(soFar)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
                 }
 
                 Spacer(minLength: 0)
-                TargetLogInputs(target: target, draft: draft)
+                TargetLogInputs(target: target, draft: draft, onComplete: { save() })
                 Spacer(minLength: 0)
 
                 if let warning {

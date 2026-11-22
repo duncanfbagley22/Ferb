@@ -424,15 +424,10 @@ struct QuickInputView: View {
                 Text(subtitle(for: target))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
-                if let soFar = target.loggedSoFarText {
-                    Text(soFar)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
             }
 
             Spacer(minLength: 0)
-            TargetLogInputs(target: target, draft: draft)
+            TargetLogInputs(target: target, draft: draft, onComplete: { commitRight() })
             Spacer(minLength: 0)
 
             if let warning {
