@@ -216,7 +216,7 @@ private struct PeriodLogsView: View {
                 LogEditorView(target: target, period: period, editing: log)
             }
             .sheet(isPresented: $showingAdd) {
-                LogEditorView(target: target, period: period, editing: nil)
+                AddLogView(target: target, period: period)
             }
         }
     }
@@ -254,8 +254,147 @@ private struct PeriodLogsView: View {
     }
 }
 
-/// Adds a log to a period, or edits one. Quantity targets ask for the number; time targets
-/// ask for the clock time; everything else just asks when.
+/// Adds a log to a period the Quick update way: pick the day (only when the period spans several),
+/// then use the same inputs (hold-to-complete check, amount dial, time wheel) and tap Log. Check,
+/// amount and duration logs are stamped now for today, or noon for an earlier day; time targets use
+/// the time on the wheel. Editing an existing log still uses `LogEditorView`, which keeps the exact time.
+private struct AddLogView: View {
+    let target: Target
+    let period: TargetPeriod
+
+    @Environment(\.modelContext) private var modelContext
+    @Environment(\.dismiss) private var dismiss
+    @State private var draft = LogDraft()
+    @State private var day: Date
+    @State private var warning: String?
+
+    private let calendar = Calendar.current
+
+    init(target: Target, period: TargetPeriod) {
+        self.target = target
+        self.period = period
+        let calendar = Calendar.current
+        let lastDay = calendar.date(byAdding: .day, value: -1, to: period.end) ?? period.start
+        _day = State(initialValue: max(period.start, min(lastDay, calendar.startOfDay(for: .now))))
+    }
+
+    private var periodDays: Int {
+        calendar.dateComponents([.day], from: period.start, to: period.end).day ?? 1
+    }
+
+    /// Days of the period that have started: logs can't be added to the future.
+    private var dayRange: ClosedRange<Date> {
+        let lastDay = calendar.date(byAdding: .day, value: -1, to: period.end) ?? period.start
+        let latest = min(lastDay, calendar.startOfDay(for: .now))
+        return period.start...max(period.start, latest)
+    }
+
+    /// The calendar day being logged for.
+    private var logDay: Date {
+        calendar.startOfDay(for: periodDays > 1 ? day : period.start)
+    }
+
+    private var dayTitle: String {
+        logDay.formatted(.dateTime.weekday(.wide).month(.wide).day())
+    }
+
+    /// What would be logged, or why it can't be yet. A timer target takes typed minutes here:
+    /// the running timer belongs to today, not to a past day.
+    private func resolveValue() -> LogResolution {
+        if target.logInputKind == .durationTimer {
+            guard let number = draft.number, number > 0 else { return .invalid("Add minutes first") }
+            return .value(number)
+        }
+        return draft.resolve(target)
+    }
+
+    /// When the log is stamped: the wheel's time for time targets, otherwise now for today or
+    /// noon for an earlier day.
+    private func completedAt(for value: Double?) -> Date {
+        if target.logInputKind == .time, let value {
+            let minutes = Int(value)
+            var base = logDay
+            // An early-morning time on an evening goal counts for the night before, so it is
+            // stamped on the next calendar day.
+            if target.isEveningTimeGoal && minutes < 12 * 60 {
+                base = calendar.date(byAdding: .day, value: 1, to: base) ?? base
+            }
+            return calendar.date(byAdding: .minute, value: minutes, to: base) ?? base
+        }
+        if calendar.isDateInToday(logDay) { return .now }
+        return calendar.date(byAdding: .hour, value: 12, to: logDay) ?? logDay
+    }
+
+    private func save() {
+        switch resolveValue() {
+        case .invalid(let message):
+            warning = message
+        case .value(let value):
+            let at = completedAt(for: value)
+            if at > Date.now.addingTimeInterval(60) {
+                warning = "That time hasn't happened yet."
+                return
+            }
+            target.record(value: value, at: at, in: modelContext)
+            dismiss()
+        }
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 24) {
+                    if periodDays > 1 {
+                        DatePicker("Day", selection: $day, in: dayRange, displayedComponents: .date)
+                            .datePickerStyle(.compact)
+                    } else {
+                        Text(dayTitle)
+                            .font(.title3.weight(.semibold))
+                            .frame(maxWidth: .infinity)
+                    }
+
+                    TargetLogInputs(
+                        target: target,
+                        draft: draft,
+                        onComplete: save,
+                        period: period,
+                        backdating: true
+                    )
+
+                    if let warning {
+                        Text(warning)
+                            .font(.footnote)
+                            .foregroundStyle(Color.goalMissed)
+                    }
+
+                    Button(action: save) {
+                        Text("Log")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 6)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(Color.goalMet)
+                }
+                .padding()
+            }
+            .scrollDismissesKeyboard(.interactively)
+            .onChange(of: day) { warning = nil }
+            .onChange(of: draft.numberText) { warning = nil }
+            .onChange(of: draft.timeOfDay) { warning = nil }
+            .navigationTitle("Add log")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+        }
+    }
+}
+
+/// Edits an existing log (adding now goes through `AddLogView`). Quantity targets ask for the
+/// number; time targets ask for the clock time; everything else just asks when.
 private struct LogEditorView: View {
     let target: Target
     let period: TargetPeriod

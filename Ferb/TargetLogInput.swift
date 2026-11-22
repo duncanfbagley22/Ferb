@@ -148,10 +148,18 @@ struct TargetLogInputs: View {
     @Bindable var draft: LogDraft
     /// Run when a yes/no target is completed by holding its check (nil = the check is display only).
     var onComplete: (() -> Void)? = nil
+    /// The period being logged to when backdating (the dial shows its total); nil = the current period.
+    var period: TargetPeriod? = nil
+    /// Backdating a log: a timer target takes plain typed minutes (the running timer belongs to today).
+    var backdating = false
     @Environment(\.modelContext) private var modelContext
 
+    private var inputKind: LogInputKind {
+        backdating && target.logInputKind == .durationTimer ? .duration : target.logInputKind
+    }
+
     var body: some View {
-        switch target.logInputKind {
+        switch inputKind {
         case .check:
             let avoided = target.item?.binarySubtype == .avoidedIt
             let prompt = avoided ? "Did you avoid it?" : "Did you do it?"
@@ -170,7 +178,7 @@ struct TargetLogInputs: View {
 
         case .amount, .duration:
             VStack(spacing: 12) {
-                AmountDial(target: target, draft: draft, step: step)
+                AmountDial(target: target, draft: draft, period: period, step: step)
                 numberField(
                     unit: [target.logUnitLabel, "to add"].filter { !$0.isEmpty }.joined(separator: " "),
                     prompt: "0"

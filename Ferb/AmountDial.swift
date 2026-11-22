@@ -10,6 +10,8 @@ struct AmountDial: View {
     @Bindable var draft: LogDraft
     /// Amount already counted on top of the typed one: the running timer's minutes (0 for plain amounts).
     var extraAmount: Double = 0
+    /// Show this period's logged total instead of the current period's (used when backdating a log).
+    var period: TargetPeriod? = nil
     let step: Double
     var size: CGFloat = 170
 
@@ -20,9 +22,10 @@ struct AmountDial: View {
     private let lineWidth: CGFloat = 16
     private var ringSize: CGFloat { size - lineWidth }
 
-    /// Logged so far in the current period (0 when nothing is in yet).
+    /// Logged so far in the period being logged to: the one passed in, else the current one (0 when nothing is in yet).
     private var logged: Double {
-        target.recentPeriods(1).first(where: \.isCurrent)?.loggedValue ?? 0
+        if let period { return period.loggedValue ?? 0 }
+        return target.recentPeriods(1).first(where: \.isCurrent)?.loggedValue ?? 0
     }
 
     private var goal: Double? {
