@@ -72,7 +72,9 @@ extension Target {
     private func layout(asOf now: Date, calendar: Calendar) -> Layout {
         let today = calendar.startOfDay(for: now)
         let first = calendar.startOfDay(for: startDate)
-        let interval = max(1, intervalDays)
+        // A rolling target has one period per day (each judged on the trailing window);
+        // a fixed one has one period per cadence block.
+        let interval = isRolling == true ? 1 : max(1, intervalDays)
         let elapsed = calendar.dateComponents([.day], from: first, to: today).day ?? 0
 
         let count: Int
@@ -98,6 +100,9 @@ extension Target {
     /// instead of scanning every log for every period.
     private func buildPeriods(_ layout: Layout, indices: Range<Int>, calendar: Calendar) -> [TargetPeriod] {
         guard !indices.isEmpty else { return [] }
+        if isRolling == true {
+            return buildRollingPeriods(layout, indices: indices, calendar: calendar)
+        }
         let isCap = item?.quantityDirection == .cap
         let dated = logs
             .map { (date: countingDate(of: $0, calendar: calendar), log: $0) }
@@ -156,6 +161,67 @@ extension Target {
                     lastDay: calendar.date(byAdding: .day, value: -1, to: end) ?? start,
                     calendar: calendar
                 )
+            )
+        }
+    }
+
+    /// Periods for a rolling target: one per day, each judged on the `intervalDays` days ending
+    /// that day, so "3 in any 7" is met on every day whose last 7 days hold 3 logs. The current
+    /// day is done while the window is covered and open (due) once it isn't; an uncovered past
+    /// day is missed. Until a full window has passed since the start date there's no verdict
+    /// for an uncovered past day (it comes back as upcoming, which streaks and completion skip).
+    private func buildRollingPeriods(_ layout: Layout, indices: Range<Int>, calendar: Calendar) -> [TargetPeriod] {
+        let isCap = item?.quantityDirection == .cap
+        let window = max(1, intervalDays)
+        let dated = logs
+            .map { (date: countingDate(of: $0, calendar: calendar), log: $0) }
+            .sorted { $0.date < $1.date }
+        // Both ends of the window only move forward as the days advance, so two cursors
+        // sweep the sorted logs once.
+        var low = 0
+        var high = 0
+
+        return indices.map { index in
+            let start = calendar.date(byAdding: .day, value: index, to: layout.first) ?? layout.first
+            let end = calendar.date(byAdding: .day, value: 1, to: start) ?? start
+            let windowStart = calendar.date(byAdding: .day, value: 1 - window, to: start) ?? start
+
+            while high < dated.count && dated[high].date < end { high += 1 }
+            while low < high && dated[low].date < windowStart { low += 1 }
+            let windowLogs = dated[low..<high].map(\.log)
+
+            let satisfied = isSatisfied(by: windowLogs)
+            let isFuture = start > layout.today
+            let isCurrent = !isFuture && layout.today < end
+            let isRampUp = index < window - 1
+
+            // Skipped with X in Quick update: that day is missed unless the window is covered anyway.
+            let skipped = !isCap && !isFuture && !satisfied
+                && (skippedOn ?? []).contains { $0 >= start && $0 < end }
+
+            let result: PeriodResult
+            if isFuture {
+                result = .upcoming
+            } else if skipped {
+                result = .missed
+            } else if isCurrent {
+                if isCap { result = satisfied ? .open : .missed } else { result = satisfied ? .done : .open }
+            } else if satisfied {
+                result = .done
+            } else if isRampUp && !isCap {
+                result = .upcoming
+            } else {
+                result = .missed
+            }
+
+            return TargetPeriod(
+                number: index + 1,
+                start: start,
+                end: end,
+                isCurrent: isCurrent,
+                result: result,
+                loggedValue: loggedValue(in: windowLogs),
+                settledOn: (result == .done || result == .missed) ? start : nil
             )
         }
     }

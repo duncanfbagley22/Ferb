@@ -29,6 +29,7 @@ struct AddTargetView: View {
     @State private var showingNewFromThis = false
     @State private var showFromEnabled = false
     @State private var showFromTime = AddTargetView.date(fromMinutes: 21 * 60)
+    @State private var isRolling = false
 
     /// Create mode. Pass `basedOn` to pre-fill the form from an existing target (starting today).
     init(
@@ -56,6 +57,7 @@ struct AddTargetView: View {
             _timeDirection = State(initialValue: fields.timeDirection)
             _showFromEnabled = State(initialValue: fields.showFromEnabled)
             _showFromTime = State(initialValue: fields.showFromTime)
+            _isRolling = State(initialValue: fields.isRolling)
         }
     }
 
@@ -77,6 +79,7 @@ struct AddTargetView: View {
         _timeDirection = State(initialValue: fields.timeDirection)
         _showFromEnabled = State(initialValue: fields.showFromEnabled)
         _showFromTime = State(initialValue: fields.showFromTime)
+        _isRolling = State(initialValue: fields.isRolling)
     }
 
     private struct Fields {
@@ -90,6 +93,7 @@ struct AddTargetView: View {
         var timeOfDay: Date
         var showFromEnabled: Bool
         var showFromTime: Date
+        var isRolling: Bool
     }
 
     /// Starting tolerance (minutes) for new time targets, so "on time" isn't one exact minute.
@@ -137,7 +141,8 @@ struct AddTargetView: View {
             timeDirection: target.timeDirection,
             timeOfDay: timeOfDay,
             showFromEnabled: target.showFromMinutes != nil,
-            showFromTime: date(fromMinutes: target.showFromMinutes ?? 21 * 60)
+            showFromTime: date(fromMinutes: target.showFromMinutes ?? 21 * 60),
+            isRolling: target.isRolling == true
         )
     }
 
@@ -145,6 +150,11 @@ struct AddTargetView: View {
     private var isLocked: Bool {
         guard let editing else { return false }
         return !editing.logs.isEmpty
+    }
+
+    /// Rolling only applies to a multi-day cadence on a non-time target; otherwise it's the fixed default.
+    private var usesRolling: Bool {
+        isRolling && everyDays > 1 && quantitySubtype != .timeTarget
     }
 
     /// Shortest window that still covers every logged day.
@@ -258,6 +268,20 @@ struct AddTargetView: View {
                         in: 1...365
                     )
                     .disabled(isLocked)
+
+                    if everyDays > 1 && quantitySubtype != .timeTarget {
+                        Picker("Window", selection: $isRolling) {
+                            Text("Fixed").tag(false)
+                            Text("Rolling").tag(true)
+                        }
+                        .pickerStyle(.segmented)
+                        .disabled(isLocked)
+                        Text(isRolling
+                            ? "Every day looks back over the last \(everyDays) days, so any \(everyDays)-day stretch can meet the goal."
+                            : "Back-to-back \(everyDays)-day blocks from the start date; each block is judged on its own.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
 
                     if editing == nil {
                         DatePicker("Starts", selection: $startDate, displayedComponents: .date)
@@ -402,6 +426,7 @@ struct AddTargetView: View {
             timeDirection: quantitySubtype == .timeTarget ? timeDirection : .either
         )
         target.showFromMinutes = showFromEnabled ? Self.minutes(from: showFromTime) : nil
+        target.isRolling = usesRolling ? true : nil
         modelContext.insert(target)
         onSaved?()
         dismiss()
@@ -416,6 +441,7 @@ struct AddTargetView: View {
         // Frequency and goal only change while there's no history to re-judge.
         guard !isLocked else { return }
         target.intervalDays = everyDays
+        target.isRolling = usesRolling ? true : nil
         target.value = value
         target.tolerance = quantitySubtype == nil ? nil : number(from: toleranceText)
         target.toleranceMode = quantitySubtype == .timeTarget ? .absolute : toleranceMode

@@ -83,6 +83,8 @@ extension Target {
     ///   last day.)
     /// - Cap: red once broken; blue if set aside with "Not today"; yellow until something is logged
     ///   today; then green. (`capHeldMinutes` no longer changes the color.)
+    /// - A rolling target (`isRolling`) whose window is covered is light blue (nothing to do until
+    ///   coverage lapses), then yellow, filled by progress through the window, once it's due.
     /// - A target with a cadence longer than 2 days is light blue until it's needed: planned today, or
     ///   2 or fewer days left in its period. A target set aside with "Not today" is blue, keeping its
     ///   progress fill if it has some logged. A period that hasn't started is gray.
@@ -109,6 +111,12 @@ extension Target {
                 return HomeTile(group: .yellow, needsAttention: true)
             }
             return HomeTile(group: .green, needsAttention: false)
+        }
+
+        // A rolling target whose window is covered has nothing to do until coverage lapses, so it
+        // reads "not needed yet" (light blue) rather than done; it turns yellow the day it's due.
+        if isRolling == true, current.result == .done {
+            return HomeTile(group: .lightBlue, needsAttention: false)
         }
 
         switch current.result {

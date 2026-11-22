@@ -40,6 +40,10 @@ final class Target {
     /// Minutes since midnight. When set, the target stays out of Quick update each day until
     /// this time (like "Later today", but standing). Nil = always shown. Optional, so old rows are fine.
     var showFromMinutes: Int?
+    /// True = rolling window: instead of fixed `intervalDays` blocks, every day is judged on the
+    /// last `intervalDays` days (e.g. 3 in any 7). Nil or false = fixed blocks, as before.
+    /// Optional, so old rows are fine.
+    var isRolling: Bool?
 
     @Relationship(deleteRule: .cascade, inverse: \Log.target)
     var logs: [Log] = []
@@ -72,6 +76,8 @@ extension Target {
     var area: Area? { item?.area }
 
     var cadenceTitle: String {
+        // A rolling window isn't "weekly" or "every N days" in blocks, so name it for what it is.
+        if isRolling == true { return "Rolling \(intervalDays) days" }
         switch intervalDays {
         case 1: "Daily"
         case 7: "Weekly"

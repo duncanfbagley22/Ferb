@@ -48,7 +48,9 @@ extension Target {
     }
 
     /// "1 day", "12 days", "3 weeks", "4 periods": streaks count cadence intervals.
+    /// A rolling target's periods are single days, so its streak is always in days.
     func streakText(_ count: Int) -> String {
+        if isRolling == true { return "\(count) \(count == 1 ? "day" : "days")" }
         let singular: String
         let plural: String
         switch intervalDays {

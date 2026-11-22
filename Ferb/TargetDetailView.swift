@@ -27,7 +27,9 @@ struct TargetDetailView: View {
                             Text(target.dateRangeText)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
-                            Text("\(doneCount) of \(periods.count) periods done")
+                            Text(target.isRolling == true
+                                ? "\(doneCount) of \(periods.count) days covered"
+                                : "\(doneCount) of \(periods.count) periods done")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -38,7 +40,9 @@ struct TargetDetailView: View {
                                     PeriodRow(period: period, target: target)
                                 }
                                 .buttonStyle(.plain)
-                                .disabled(period.result == .upcoming)
+                                // Only days that haven't started are locked. A rolling target's early days
+                                // also come back as .upcoming (no verdict yet) but have logs to edit.
+                                .disabled(period.start > Date.now)
                                 .id(period.number)
                             }
                         }
