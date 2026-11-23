@@ -53,6 +53,7 @@ enum ReminderScheduler {
     /// `AlertCapacity.isNearLimit` turns on at this many scheduled notifications.
     static let nearLimit = 50
     private static let planPrefix = "reminder.plan."
+    private static let badgePrefix = "reminder.badge."
 
     /// Bumped on every refresh so an older, slower refresh can stop once a newer one starts.
     private static var generation = 0
@@ -91,10 +92,12 @@ enum ReminderScheduler {
         let targets = (try? context.fetch(FetchDescriptor<Target>())) ?? []
         let hasActiveTargets = targets.contains { $0.isActive() }
         let leftToLog = targets.contains { $0.needsQuickLog() }
+        // Targets flagged "Badge until done" feed the red badge on the app icon.
+        let badgeTargets = targets.filter { $0.badgeNudge == true && !$0.isHidden }
 
         var status = await currentStatus()
-        if status == .notDetermined, requestingPermission, !enabled.isEmpty || planOn {
-            _ = try? await center.requestAuthorization(options: [.alert, .sound])
+        if status == .notDetermined, requestingPermission, !enabled.isEmpty || planOn || !badgeTargets.isEmpty {
+            _ = try? await center.requestAuthorization(options: [.alert, .sound, .badge])
             status = await currentStatus()
         }
 
@@ -111,6 +114,9 @@ enum ReminderScheduler {
             return status
         }
 
+        // The badge right now (the app is running); later days get a silent badge-only notification.
+        try? await center.setBadgeCount(badgeTargets.filter { $0.needsBadge() }.count)
+
         // Nothing left to log: take down an end-of-day notification that already arrived.
         if !leftToLog {
             let delivered = await center.deliveredNotifications()
@@ -120,7 +126,7 @@ enum ReminderScheduler {
 
         let baseRequests = enabled.flatMap {
             requests(for: $0, hasActiveTargets: hasActiveTargets, leftToLog: leftToLog)
-        }
+        } + badgeRequests(for: badgeTargets)
         // Plan alerts go last, soonest first. Whatever doesn't fit under the budget is counted
         // (not silently lost) so the screens can warn about it.
         let planCandidates = planOn ? planRequests(for: planEntries) : []
@@ -189,6 +195,32 @@ enum ReminderScheduler {
 
             let trigger = UNCalendarNotificationTrigger(dateMatching: when, repeats: false)
             let identifier = "\(identifierBase(for: reminder)).\(when.year ?? 0)-\(when.month ?? 0)-\(when.day ?? 0)"
+            requests.append(UNNotificationRequest(identifier: identifier, content: content, trigger: trigger))
+        }
+        return requests
+    }
+
+    /// Silent, badge-only notifications at 12:01 AM for each coming day, so the icon badge shows up
+    /// on a new day even if the app stays closed. Each carries that day's count assuming nothing is
+    /// logged yet; the app corrects it live whenever it runs. No title, body or sound, so nothing
+    /// appears on screen. Today's badge is set directly in `refresh`.
+    private static func badgeRequests(for flagged: [Target]) -> [UNNotificationRequest] {
+        guard !flagged.isEmpty else { return [] }
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: .now)
+        var requests: [UNNotificationRequest] = []
+
+        for offset in 1..<alertWindowDays {
+            guard let day = calendar.date(byAdding: .day, value: offset, to: today) else { continue }
+            var when = calendar.dateComponents([.year, .month, .day], from: day)
+            when.hour = 0
+            when.minute = 1
+            guard let fireDate = calendar.date(from: when) else { continue }
+
+            let content = UNMutableNotificationContent()
+            content.badge = NSNumber(value: flagged.filter { $0.needsBadge(asOf: fireDate) }.count)
+            let trigger = UNCalendarNotificationTrigger(dateMatching: when, repeats: false)
+            let identifier = "\(badgePrefix)\(when.year ?? 0)-\(when.month ?? 0)-\(when.day ?? 0)"
             requests.append(UNNotificationRequest(identifier: identifier, content: content, trigger: trigger))
         }
         return requests

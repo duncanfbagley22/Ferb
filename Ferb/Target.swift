@@ -44,6 +44,10 @@ final class Target {
     /// last `intervalDays` days (e.g. 3 in any 7). Nil or false = fixed blocks, as before.
     /// Optional, so old rows are fine.
     var isRolling: Bool?
+    /// True = "needs a little extra push": each day this target counts toward the red badge on the
+    /// app icon until it's logged, skipped (X) or set aside for the day. Nil or false = no badge.
+    /// Optional, so old rows are fine.
+    var badgeNudge: Bool?
 
     @Relationship(deleteRule: .cascade, inverse: \Log.target)
     var logs: [Log] = []
@@ -78,7 +82,7 @@ extension Target {
     var cadenceTitle: String {
         // A rolling window isn't "weekly" or "every N days" in blocks, so name it for what it is.
         if isRolling == true { return "Rolling \(intervalDays) days" }
-        switch intervalDays {
+        return switch intervalDays {
         case 1: "Daily"
         case 7: "Weekly"
         default: "Every \(intervalDays) days"

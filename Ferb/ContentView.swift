@@ -45,7 +45,11 @@ struct ContentView: View {
         }
         .sorted()
         .joined(separator: ",")
-        return "\(active)|\(left)|\(plan)"
+        // The red icon badge: which targets are flagged, and which of those still need a log.
+        let flagged = targets.filter { $0.badgeNudge == true && !$0.isHidden }
+        let flaggedIDs = flagged.map { String(describing: $0.persistentModelID) }.sorted().joined(separator: ",")
+        let badged = flagged.filter { $0.needsBadge() }.count
+        return "\(active)|\(left)|\(plan)|\(flaggedIDs)|\(badged)"
     }
 
     /// Opens Quick update for a tapped start-of-day / end-of-day alert, but only once the app is
@@ -99,7 +103,7 @@ struct ContentView: View {
             }
         }
         .onChange(of: schedulingSignature) {
-            Task { await ReminderScheduler.refresh(in: modelContext, requestingPermission: false) }
+            Task { await ReminderScheduler.refresh(in: modelContext, requestingPermission: true) }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.significantTimeChangeNotification)) { _ in
             // The day rolled over (or the clock/time zone changed) while the app was open.

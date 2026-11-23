@@ -30,6 +30,7 @@ struct AddTargetView: View {
     @State private var showFromEnabled = false
     @State private var showFromTime = AddTargetView.date(fromMinutes: 21 * 60)
     @State private var isRolling = false
+    @State private var badgeNudge = false
 
     /// Create mode. Pass `basedOn` to pre-fill the form from an existing target (starting today).
     init(
@@ -58,6 +59,7 @@ struct AddTargetView: View {
             _showFromEnabled = State(initialValue: fields.showFromEnabled)
             _showFromTime = State(initialValue: fields.showFromTime)
             _isRolling = State(initialValue: fields.isRolling)
+            _badgeNudge = State(initialValue: fields.badgeNudge)
         }
     }
 
@@ -80,6 +82,7 @@ struct AddTargetView: View {
         _showFromEnabled = State(initialValue: fields.showFromEnabled)
         _showFromTime = State(initialValue: fields.showFromTime)
         _isRolling = State(initialValue: fields.isRolling)
+        _badgeNudge = State(initialValue: fields.badgeNudge)
     }
 
     private struct Fields {
@@ -94,6 +97,7 @@ struct AddTargetView: View {
         var showFromEnabled: Bool
         var showFromTime: Date
         var isRolling: Bool
+        var badgeNudge: Bool
     }
 
     /// Starting tolerance (minutes) for new time targets, so "on time" isn't one exact minute.
@@ -142,7 +146,8 @@ struct AddTargetView: View {
             timeOfDay: timeOfDay,
             showFromEnabled: target.showFromMinutes != nil,
             showFromTime: date(fromMinutes: target.showFromMinutes ?? 21 * 60),
-            isRolling: target.isRolling == true
+            isRolling: target.isRolling == true,
+            badgeNudge: target.badgeNudge == true
         )
     }
 
@@ -347,10 +352,11 @@ struct AddTargetView: View {
                     if showFromEnabled {
                         DatePicker("Show from", selection: $showFromTime, displayedComponents: .hourAndMinute)
                     }
+                    Toggle("Badge until done", isOn: $badgeNudge)
                 } header: {
                     Text("Quick update")
                 } footer: {
-                    Text("Until this time each day, the target stays out of Quick update and shows blue on Home, like Later today. Doesn't affect past results.")
+                    Text("Until this time each day, the target stays out of Quick update and shows blue on Home, like Later today. Doesn't affect past results. \"Badge until done\" counts the target on the app icon's red badge each day until you log it, skip it or set it aside.")
                 }
 
                 if isLocked {
@@ -427,6 +433,7 @@ struct AddTargetView: View {
         )
         target.showFromMinutes = showFromEnabled ? Self.minutes(from: showFromTime) : nil
         target.isRolling = usesRolling ? true : nil
+        target.badgeNudge = badgeNudge ? true : nil
         modelContext.insert(target)
         onSaved?()
         dismiss()
@@ -437,6 +444,7 @@ struct AddTargetView: View {
         target.durationDays = isOngoing ? nil : max(durationDays, minDuration)
         // The daily show-from time never changes past results, so it's editable even with history.
         target.showFromMinutes = showFromEnabled ? Self.minutes(from: showFromTime) : nil
+        target.badgeNudge = badgeNudge ? true : nil
 
         // Frequency and goal only change while there's no history to re-judge.
         guard !isLocked else { return }

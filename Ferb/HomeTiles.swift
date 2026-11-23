@@ -18,15 +18,15 @@ enum TileGroup: Int, CaseIterable {
     case lightBlue  // not needed until later (long cadence)
     case gray       // the period hasn't started
 
-    /// The tile's light tint. Green and red are the exceptions: they are the dark outcome colors
-    /// ("goal met" and a miss), because those tiles are filled all the way. Dark green is also the
-    /// fill drawn inside a partly done tile.
+    /// The tile's light tint. Green, red and blue are the exceptions: they are the solid dark colors
+    /// ("goal met", a miss, and set aside, matching the Quick update buttons), because those tiles are
+    /// filled all the way. Dark green is also the fill drawn inside a partly done tile.
     var color: Color {
         switch self {
         case .red: Color.goalMissed
         case .yellow: Color.yellow.opacity(0.55)
         case .green: Color.goalMet
-        case .blue: Color.setAside.opacity(0.5)
+        case .blue: Color.setAside
         case .lightBlue: Color(red: 0.55, green: 0.80, blue: 1.0).opacity(0.5)
         case .gray: Color.gray.opacity(0.35)
         }
@@ -57,7 +57,7 @@ enum TileGroup: Int, CaseIterable {
     }
 
     /// Color for the number inside a merged circle.
-    var textColor: Color { (self == .green || self == .red) ? .white : .primary }
+    var textColor: Color { (self == .green || self == .red || self == .blue) ? .white : .primary }
 }
 
 /// One target's state on Home.
