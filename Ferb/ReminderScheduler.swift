@@ -73,6 +73,11 @@ enum ReminderScheduler {
         await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
     }
 
+    /// Whether iOS lets the app put a number on its icon (a separate switch from alerts and sound).
+    static func currentBadgeSetting() async -> UNNotificationSetting {
+        await UNUserNotificationCenter.current().notificationSettings().badgeSetting
+    }
+
     /// Rebuilds the scheduled notifications from the saved reminders.
     /// With `requestingPermission`, asks iOS for permission first if it hasn't been asked
     /// yet, but only when at least one reminder is on.

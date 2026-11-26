@@ -15,6 +15,10 @@ struct AlertsView: View {
 
     /// Whether iOS currently lets the app send notifications.
     @State private var authStatus: UNAuthorizationStatus = .notDetermined
+    /// Whether iOS lets the app show a number on its icon. Starts as enabled so no note flashes
+    /// before the real value is read.
+    @State private var badgeSetting: UNNotificationSetting = .enabled
+    @Query private var targets: [Target]
 
     /// The reminder whose edit screen is open (an existing one, or a newly added one).
     @State private var editing: Reminder?
@@ -34,6 +38,22 @@ struct AlertsView: View {
         reminders.map {
             "\($0.kind.rawValue)|\($0.label)|\($0.hour):\($0.minute)|\($0.weekdays.sorted())|\($0.isEnabled)"
         } + ["plan|\(planAlertsEnabled)"]
+    }
+
+    /// Only shown when some target uses "Badge until done" and notifications are otherwise allowed
+    /// (a full denial has its own note). Says what iOS reported, since that is what tells the two
+    /// cases apart.
+    private var badgeNote: String? {
+        guard targets.contains(where: { $0.badgeNudge == true && !$0.isHidden }),
+              authStatus != .denied, authStatus != .notDetermined else { return nil }
+        switch badgeSetting {
+        case .enabled:
+            return nil
+        case .disabled:
+            return "Badges are turned off for Ferb, so \"Badge until done\" can't show a number on the icon. Turn on Badges under Notifications in iOS Settings."
+        default:
+            return "iOS hasn't given Ferb badge permission (it reports badges as not available), so \"Badge until done\" can't show a number on the icon. Check Notifications in iOS Settings for a Badges switch."
+        }
     }
 
     /// Says so before plan alerts start going missing, and again once they have. Nil when
@@ -79,6 +99,18 @@ struct AlertsView: View {
                 Section {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Notifications are turned off for this app, so alerts can't go off.")
+                        Button("Open iOS Settings") {
+                            if let url = ReminderScheduler.settingsURL { openURL(url) }
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                }
+            }
+
+            if let note = badgeNote {
+                Section {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(note)
                         Button("Open iOS Settings") {
                             if let url = ReminderScheduler.settingsURL { openURL(url) }
                         }
@@ -138,11 +170,15 @@ struct AlertsView: View {
         }
         .task(id: signature) {
             authStatus = await ReminderScheduler.refresh(in: modelContext, requestingPermission: true)
+            badgeSetting = await ReminderScheduler.currentBadgeSetting()
         }
         .onChange(of: scenePhase) { _, phase in
             // Coming back from iOS Settings: pick up a changed permission.
             if phase == .active {
-                Task { authStatus = await ReminderScheduler.currentStatus() }
+                Task {
+                    authStatus = await ReminderScheduler.currentStatus()
+                    badgeSetting = await ReminderScheduler.currentBadgeSetting()
+                }
             }
         }
     }
