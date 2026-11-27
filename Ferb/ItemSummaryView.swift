@@ -12,6 +12,8 @@ struct ItemSummaryView: View {
     @State private var showingNewTarget = false
     @State private var showingSettings = false
     @State private var targetToDelete: Target?
+    /// The target being copied into a new one (opens the pre-filled New Target form).
+    @State private var targetToDuplicate: Target?
 
     private var currentTarget: Target? {
         item.targets.filter { $0.isActive() }.max { $0.startDate < $1.startDate }
@@ -33,7 +35,7 @@ struct ItemSummaryView: View {
             .sorted { $0.startDate < $1.startDate }
     }
 
-    /// A horizontal strip of target cards. Long-press one to archive or delete it.
+    /// A horizontal strip of target cards. Long-press one to duplicate, archive or delete it.
     private func targetStrip(_ targets: [Target]) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 12) {
@@ -44,6 +46,9 @@ struct ItemSummaryView: View {
                     }
                     .buttonStyle(.plain)
                     .contextMenu {
+                        Button("Duplicate", systemImage: "plus.square.on.square") {
+                            targetToDuplicate = target
+                        }
                         Button("Archive", systemImage: "archivebox") {
                             target.isArchived = true
                         }
@@ -127,6 +132,9 @@ struct ItemSummaryView: View {
         }
         .sheet(isPresented: $showingNewTarget) {
             AddTargetView(item: item)
+        }
+        .sheet(item: $targetToDuplicate) { source in
+            AddTargetView(item: item, basedOn: source)
         }
         .sheet(isPresented: $showingSettings) {
             AddItemView(editing: item)
