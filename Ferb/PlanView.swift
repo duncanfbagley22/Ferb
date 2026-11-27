@@ -26,6 +26,10 @@ struct PlanView: View {
     @State private var selectedDate = Calendar.current.startOfDay(for: .now)
     @State private var showingAdd = false
     @State private var showingSchedule = false
+    /// The week the strip is showing, as an offset in weeks from the current week.
+    @State private var stripWeek: Int? = 0
+    /// Weeks the strip can page through (five years either side of the current week).
+    private let stripWeeks = Array(-260...260)
     @State private var editing: PlanEntry?
 
     private let hourHeight: CGFloat = 100
@@ -48,10 +52,23 @@ struct PlanView: View {
         Calendar.current.component(.weekday, from: selectedDate)
     }
 
-    /// The seven days of the week containing the shown day, from the user's first weekday.
-    private var weekDates: [Date] {
+    /// First day of the week containing `date`, from the user's first weekday.
+    private func weekStart(of date: Date) -> Date {
         let calendar = Calendar.current
-        let start = calendar.dateInterval(of: .weekOfYear, for: selectedDate)?.start ?? selectedDate
+        return calendar.dateInterval(of: .weekOfYear, for: date)?.start ?? calendar.startOfDay(for: date)
+    }
+
+    /// How many weeks `date`'s week is from the current week (negative = earlier).
+    private func weekOffset(for date: Date) -> Int {
+        let days = Calendar.current.dateComponents([.day], from: weekStart(of: .now), to: weekStart(of: date)).day ?? 0
+        return days / 7
+    }
+
+    /// The seven days of the week `offset` weeks from the current one.
+    private func weekDates(at offset: Int) -> [Date] {
+        let calendar = Calendar.current
+        let current = weekStart(of: .now)
+        let start = calendar.date(byAdding: .day, value: offset * 7, to: current) ?? current
         return (0..<7).compactMap { calendar.date(byAdding: .day, value: $0, to: start) }
     }
 
@@ -159,11 +176,44 @@ struct PlanView: View {
 
     // MARK: - Week strip
 
-    /// The week containing the shown day, with real dates. Tap a day to show it.
+    /// The weeks as swipeable pages, one week per page. Tap a day to show it. Swiping to another
+    /// week moves the shown date by the same number of weeks (same weekday), and moving the date
+    /// any other way (arrows, Today, jumping to a one-off) scrolls the strip to its week.
     private var weekdayStrip: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            LazyHStack(spacing: 0) {
+                ForEach(stripWeeks, id: \.self) { offset in
+                    weekRow(offset)
+                        .containerRelativeFrame(.horizontal)
+                        .id(offset)
+                }
+            }
+            .scrollTargetLayout()
+        }
+        .scrollTargetBehavior(.paging)
+        .scrollPosition(id: $stripWeek)
+        // A horizontal ScrollView otherwise takes the height it's offered; hug the day buttons.
+        .fixedSize(horizontal: false, vertical: true)
+        .padding(.bottom, 8)
+        .onChange(of: stripWeek) { _, page in
+            guard let page else { return }
+            let delta = page - weekOffset(for: selectedDate)
+            if delta != 0,
+               let date = Calendar.current.date(byAdding: .day, value: delta * 7, to: selectedDate) {
+                selectedDate = date
+            }
+        }
+        .onChange(of: selectedDate) {
+            let target = weekOffset(for: selectedDate)
+            if stripWeek != target { withAnimation { stripWeek = target } }
+        }
+    }
+
+    /// One week of the strip, `offset` weeks from the current week.
+    private func weekRow(_ offset: Int) -> some View {
         let calendar = Calendar.current
         return HStack(spacing: 6) {
-            ForEach(weekDates, id: \.self) { date in
+            ForEach(weekDates(at: offset), id: \.self) { date in
                 let isSelected = calendar.isDate(date, inSameDayAs: selectedDate)
                 let isToday = calendar.isDateInToday(date)
                 Button { selectedDate = date } label: {
@@ -184,7 +234,6 @@ struct PlanView: View {
             }
         }
         .padding(.horizontal)
-        .padding(.bottom, 8)
     }
 
     // MARK: - Calendar bar
