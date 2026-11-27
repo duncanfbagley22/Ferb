@@ -25,18 +25,19 @@ struct PlanView: View {
     /// The day being shown (start of day).
     @State private var selectedDate = Calendar.current.startOfDay(for: .now)
     @State private var showingAdd = false
+    @State private var showingSchedule = false
     @State private var editing: PlanEntry?
 
     private let hourHeight: CGFloat = 100
     private let labelWidth: CGFloat = 52
 
     /// The slots on the date being shown: weekly ones for this weekday, plus one-offs set for
-    /// exactly this date. Slots whose item is archived are left out.
+    /// exactly this date. Slots are left out unless their item has a target active that date.
     private var entries: [PlanEntry] {
         let calendar = Calendar.current
         let day = planDate
         return allEntries.filter { entry in
-            guard entry.item != nil, entry.item?.isArchived != true else { return false }
+            guard entry.isShown(on: day) else { return false }
             if let date = entry.date { return calendar.isDate(date, inSameDayAs: day) }
             return entry.weekday == weekday
         }
@@ -128,8 +129,12 @@ struct PlanView: View {
                         Label("Calendars", systemImage: "calendar")
                     }
                 }
+                Button("Schedule", systemImage: "list.bullet.rectangle") { showingSchedule = true }
                 Button("Add slot", systemImage: "plus") { showingAdd = true }
             }
+        }
+        .sheet(isPresented: $showingSchedule) {
+            ScheduleOverviewView()
         }
         .sheet(isPresented: $showingAdd) {
             PlanEntryEditor(editing: nil, weekday: weekday, date: planDate, onSavedOneOff: jump(to:))
@@ -498,7 +503,7 @@ struct PlanEntryEditor: View {
         return days.sorted().filter { day in
             allEntries.contains { other in
                 other !== editing && other.date == nil && other.weekday == day
-                    && other.item?.isArchived != true
+                    && other.isShown(on: .now)
                     && other.startMinutes < endMinutes && other.endMinutes > startMinutes
             }
         }
@@ -513,7 +518,7 @@ struct PlanEntryEditor: View {
         let startMinutes = Self.minutes(from: start)
         let endMinutes = min(startMinutes + duration, 24 * 60)
         return allEntries.contains { other in
-            guard other !== editing, other.item?.isArchived != true else { return false }
+            guard other !== editing, other.isShown(on: oneOffDate) else { return false }
             let sameDay = other.date.map { calendar.isDate($0, inSameDayAs: oneOffDate) }
                 ?? (other.weekday == weekday)
             return sameDay && other.startMinutes < endMinutes && other.endMinutes > startMinutes

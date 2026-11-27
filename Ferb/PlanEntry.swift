@@ -30,6 +30,14 @@ final class PlanEntry {
 
     /// Minutes since midnight at which the slot ends (capped at the end of the day).
     var endMinutes: Int { min(startMinutes + durationMinutes, 24 * 60) }
+
+    /// Whether this slot counts on the given day: its item exists and has a target active that
+    /// day (so slots for archived items, ended targets, targets that haven't started yet and
+    /// items with no target are all left out). Says nothing about the weekday or date match.
+    func isShown(on day: Date, calendar: Calendar = .current) -> Bool {
+        guard let item, !item.isArchived else { return false }
+        return item.targets.contains { $0.isActive(asOf: day, calendar: calendar) }
+    }
 }
 
 extension Item {
