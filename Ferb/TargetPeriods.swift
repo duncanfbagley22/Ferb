@@ -170,6 +170,8 @@ extension Target {
     /// day is done while the window is covered and open (due) once it isn't; an uncovered past
     /// day is missed. Until a full window has passed since the start date there's no verdict
     /// for an uncovered past day (it comes back as upcoming, which streaks and completion skip).
+    /// With `oncePerDay`, a day is also done when it has a log, or when enough days remain to
+    /// still reach the goal before the oldest counted log leaves the window.
     private func buildRollingPeriods(_ layout: Layout, indices: Range<Int>, calendar: Calendar) -> [TargetPeriod] {
         let isCap = item?.quantityDirection == .cap
         let window = max(1, intervalDays)
@@ -190,7 +192,23 @@ extension Target {
             while low < high && dated[low].date < windowStart { low += 1 }
             let windowLogs = dated[low..<high].map(\.log)
 
-            let satisfied = isSatisfied(by: windowLogs)
+            let covered = isSatisfied(by: windowLogs)
+            // Count each day once: a day with a log is done for that day even if the window isn't
+            // covered yet, since nothing more can count until tomorrow. (`loggedValue` still holds
+            // the window's real count, so Home can tell the two cases apart.)
+            let loggedThatDay = oncePerDay == true && !isCap
+                && dated[low..<high].contains { $0.date >= start }
+            // Still on track: no log that day and the window isn't covered, but enough days remain
+            // before the oldest counted log leaves the window to still reach the goal.
+            var hasSlack = false
+            if oncePerDay == true, !isCap, !covered, !loggedThatDay, low < high {
+                let needed = (value ?? 0) - toleranceAmount - (loggedValue(in: windowLogs) ?? 0)
+                let oldest = calendar.startOfDay(for: dated[low].date)
+                let lastCountedDay = calendar.date(byAdding: .day, value: window - 1, to: oldest) ?? oldest
+                let daysAfter = calendar.dateComponents([.day], from: start, to: lastCountedDay).day ?? 0
+                hasSlack = Double(daysAfter) >= needed
+            }
+            let satisfied = covered || loggedThatDay || hasSlack
             let isFuture = start > layout.today
             let isCurrent = !isFuture && layout.today < end
             let isRampUp = index < window - 1
@@ -300,11 +318,17 @@ extension Target {
     }
 
     /// Value shown for a period: summed for amount/duration, latest for a time target.
+    /// With `oncePerDay`, the number of different days that have a log (each day counts once).
     private func loggedValue(in periodLogs: [Log]) -> Double? {
         let valued = periodLogs.filter { $0.value != nil }
         guard !valued.isEmpty else { return nil }
         if item?.quantitySubtype == .timeTarget {
             return valued.max { $0.completedAt < $1.completedAt }?.value
+        }
+        if oncePerDay == true {
+            let calendar = Calendar.current
+            let days = Set(valued.filter { ($0.value ?? 0) > 0 }.map { calendar.startOfDay(for: $0.completedAt) })
+            return Double(days.count)
         }
         return valued.compactMap(\.value).reduce(0, +)
     }

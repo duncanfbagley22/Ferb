@@ -16,18 +16,35 @@ private struct CalendarEntry: Identifiable {
     let item: Item
     let target: Target
     let periods: [TargetPeriod]
+    /// Count each day once: the selected day has a log, so it reads as done whatever its period says.
+    var loggedOnDay: Bool = false
 
     var id: PersistentIdentifier { target.persistentModelID }
 
     /// Worst result wins: any miss shows as missed, all done shows as done.
-    var result: PeriodResult { combinedResult(of: periods) }
+    var result: PeriodResult { loggedOnDay ? .done : combinedResult(of: periods) }
 }
 
 /// Worst result wins: any miss shows as missed, all done shows as done.
 private func combinedResult(of periods: [TargetPeriod]) -> PeriodResult {
-    if periods.contains(where: { $0.result == .missed }) { return .missed }
-    if periods.allSatisfy({ $0.result == .done }) { return .done }
-    return periods.allSatisfy({ $0.result == .upcoming }) ? .upcoming : .open
+    combinedResult(ofResults: periods.map(\.result))
+}
+
+/// Same rule over plain results (used for an area group's header).
+private func combinedResult(ofResults results: [PeriodResult]) -> PeriodResult {
+    if results.contains(.missed) { return .missed }
+    if results.allSatisfy({ $0 == .done }) { return .done }
+    return results.allSatisfy({ $0 == .upcoming }) ? .upcoming : .open
+}
+
+/// One area's entries for the selected day. `area` is nil for items whose subarea has no area.
+private struct AreaEntryGroup: Identifiable {
+    let area: Area?
+    let entries: [CalendarEntry]
+
+    var id: String { area?.title ?? "Other" }
+    var title: String { area?.title ?? "Other" }
+    var result: PeriodResult { combinedResult(ofResults: entries.map(\.result)) }
 }
 
 /// How a day is colored in the calendar.
@@ -83,6 +100,8 @@ struct CalendarView: View {
     @State private var areaFilter: Area?
     @State private var subareaFilter: Subarea?
     @State private var statusFilter: PeriodResult?
+    /// Area groups open in the day list (all start collapsed; kept when you change day).
+    @State private var expandedAreas: Set<Area?> = []
 
     private let calendar = Calendar.current
 
@@ -286,6 +305,12 @@ struct CalendarView: View {
         return selectedDay..<end
     }
 
+    /// Whether a target that counts each day once has a log inside the range (a day).
+    private func hasLog(_ target: Target, in range: Range<Date>) -> Bool {
+        target.oncePerDay == true
+            && target.logs.contains { $0.completedAt >= range.lowerBound && $0.completedAt < range.upperBound }
+    }
+
     /// Targets that pass the area and subarea filters, with their periods worked out once.
     private var filteredPeriods: FilteredTargets {
         targets.compactMap { target in
@@ -304,7 +329,12 @@ struct CalendarView: View {
                 $0.start < range.upperBound && $0.end > range.lowerBound
             }
             guard !overlapping.isEmpty else { return nil }
-            let entry = CalendarEntry(item: item, target: element.target, periods: overlapping)
+            let entry = CalendarEntry(
+                item: item,
+                target: element.target,
+                periods: overlapping,
+                loggedOnDay: hasLog(element.target, in: range)
+            )
             if let statusFilter, entry.result != statusFilter { return nil }
             return entry
         }
@@ -333,7 +363,15 @@ struct CalendarView: View {
 
         var done = 0, missed = 0, open = 0
         for element in all {
-            guard let result = dayResult(on: range.lowerBound, periods: element.periods, today: today) else { continue }
+            // Count each day once: a day with a log is done, whatever its period says.
+            let result: PeriodResult
+            if hasLog(element.target, in: range) {
+                result = .done
+            } else if let found = dayResult(on: range.lowerBound, periods: element.periods, today: today) {
+                result = found
+            } else {
+                continue
+            }
             if let statusFilter, result != statusFilter { continue }
             switch result {
             case .done: done += 1
@@ -365,24 +403,76 @@ struct CalendarView: View {
     }
 
     private func entryList(_ all: FilteredTargets) -> some View {
-        let shown = entries(all)
+        let groups = areaGroups(entries(all))
         return VStack(alignment: .leading, spacing: 0) {
             Text(selectionTitle)
                 .font(.headline)
                 .padding(.bottom, 8)
-            if shown.isEmpty {
+            if groups.isEmpty {
                 Text("Nothing here")
                     .foregroundStyle(.secondary)
             } else {
-                ForEach(shown) { entry in
-                    NavigationLink(value: entry.item) {
-                        entryRow(entry)
+                ForEach(groups) { group in
+                    let isExpanded = expandedAreas.contains(group.area)
+                    groupHeader(group, isExpanded: isExpanded)
+                    if isExpanded {
+                        ForEach(group.entries) { entry in
+                            NavigationLink(value: entry.item) {
+                                entryRow(entry)
+                            }
+                            .buttonStyle(.plain)
+                        }
                     }
-                    .buttonStyle(.plain)
                 }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// The day's entries grouped by area in the usual area order, with an "Other" group last.
+    private func areaGroups(_ shown: [CalendarEntry]) -> [AreaEntryGroup] {
+        var groups: [AreaEntryGroup] = []
+        for area in Area.allCases {
+            let matching = shown.filter { $0.item.area == area }
+            if !matching.isEmpty { groups.append(AreaEntryGroup(area: area, entries: matching)) }
+        }
+        let other = shown.filter { $0.item.area == nil }
+        if !other.isEmpty { groups.append(AreaEntryGroup(area: nil, entries: other)) }
+        return groups
+    }
+
+    /// Tap to open or close the group. The icon is the group's worst result.
+    private func groupHeader(_ group: AreaEntryGroup, isExpanded: Bool) -> some View {
+        let result = group.result
+        return Button {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                if isExpanded {
+                    expandedAreas.remove(group.area)
+                } else {
+                    expandedAreas.insert(group.area)
+                }
+            }
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: icon(for: result))
+                    .font(.title3)
+                    .foregroundStyle(color(for: result))
+                Text(group.title)
+                    .font(.headline)
+                Text("\(group.entries.count)")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
+            }
+            .padding(.vertical, 8)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
     }
 
     private func entryRow(_ entry: CalendarEntry) -> some View {

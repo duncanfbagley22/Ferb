@@ -31,6 +31,7 @@ struct AddTargetView: View {
     @State private var showFromTime = AddTargetView.date(fromMinutes: 21 * 60)
     @State private var isRolling = false
     @State private var badgeNudge = false
+    @State private var oncePerDay = false
 
     /// Create mode. Pass `basedOn` to pre-fill the form from an existing target (starting today).
     init(
@@ -60,6 +61,7 @@ struct AddTargetView: View {
             _showFromTime = State(initialValue: fields.showFromTime)
             _isRolling = State(initialValue: fields.isRolling)
             _badgeNudge = State(initialValue: fields.badgeNudge)
+            _oncePerDay = State(initialValue: fields.oncePerDay)
         }
     }
 
@@ -83,6 +85,7 @@ struct AddTargetView: View {
         _showFromTime = State(initialValue: fields.showFromTime)
         _isRolling = State(initialValue: fields.isRolling)
         _badgeNudge = State(initialValue: fields.badgeNudge)
+        _oncePerDay = State(initialValue: fields.oncePerDay)
     }
 
     private struct Fields {
@@ -98,6 +101,7 @@ struct AddTargetView: View {
         var showFromTime: Date
         var isRolling: Bool
         var badgeNudge: Bool
+        var oncePerDay: Bool
     }
 
     /// Starting tolerance (minutes) for new time targets, so "on time" isn't one exact minute.
@@ -147,7 +151,8 @@ struct AddTargetView: View {
             showFromEnabled: target.showFromMinutes != nil,
             showFromTime: date(fromMinutes: target.showFromMinutes ?? 21 * 60),
             isRolling: target.isRolling == true,
-            badgeNudge: target.badgeNudge == true
+            badgeNudge: target.badgeNudge == true,
+            oncePerDay: target.oncePerDay == true
         )
     }
 
@@ -161,6 +166,16 @@ struct AddTargetView: View {
     private var usesRolling: Bool {
         isRolling && everyDays > 1 && quantitySubtype != .timeTarget
     }
+
+    /// "Count each day once" only fits an amount in Times (not a cap) over more than one day.
+    private var offersOncePerDay: Bool {
+        guard everyDays > 1, let item = selectedItem, item.trackingType == .quantity,
+              item.quantitySubtype == .amount, item.quantityDirection != .cap,
+              item.unit == .times, item.customUnit == nil else { return false }
+        return true
+    }
+
+    private var usesOncePerDay: Bool { oncePerDay && offersOncePerDay }
 
     /// Shortest window that still covers every logged day.
     private var minDuration: Int {
@@ -286,6 +301,20 @@ struct AddTargetView: View {
                             : "Back-to-back \(everyDays)-day blocks from the start date; each block is judged on its own.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                    }
+
+                    if offersOncePerDay {
+                        Toggle("Count each day once", isOn: $oncePerDay)
+                        Text(oncePerDay
+                            ? "Extra logs on the same day are kept but count once, so the goal needs that many different days."
+                            : "Every log counts, so several in one day can add up.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        if oncePerDay, let goal = number(from: valueText), goal > Double(everyDays) {
+                            Text("The goal is higher than the number of days, so it can never be met.")
+                                .font(.caption)
+                                .foregroundStyle(Color.goalMissed)
+                        }
                     }
 
                     if editing == nil {
@@ -434,6 +463,7 @@ struct AddTargetView: View {
         target.showFromMinutes = showFromEnabled ? Self.minutes(from: showFromTime) : nil
         target.isRolling = usesRolling ? true : nil
         target.badgeNudge = badgeNudge ? true : nil
+        target.oncePerDay = usesOncePerDay ? true : nil
         modelContext.insert(target)
         onSaved?()
         dismiss()
@@ -445,6 +475,8 @@ struct AddTargetView: View {
         // The daily show-from time never changes past results, so it's editable even with history.
         target.showFromMinutes = showFromEnabled ? Self.minutes(from: showFromTime) : nil
         target.badgeNudge = badgeNudge ? true : nil
+        // Counting each day once changes what's counted, never what's recorded, so it's editable with history.
+        target.oncePerDay = usesOncePerDay ? true : nil
 
         // Frequency and goal only change while there's no history to re-judge.
         guard !isLocked else { return }

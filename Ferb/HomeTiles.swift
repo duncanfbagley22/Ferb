@@ -85,6 +85,8 @@ extension Target {
     ///   today; then green. (`capHeldMinutes` no longer changes the color.)
     /// - A rolling target (`isRolling`) whose window is covered is light blue (nothing to do until
     ///   coverage lapses), then yellow, filled by progress through the window, once it's due.
+    /// - A target that counts each day once (`oncePerDay`) and has a log today is light blue (nothing more
+    ///   can count until tomorrow), keeping its progress fill, until the window is covered or tomorrow.
     /// - A target with a cadence longer than 2 days is light blue until it's needed: planned today, or
     ///   2 or fewer days left in its period. A target set aside with "Not today" is blue, keeping its
     ///   progress fill if it has some logged. A period that hasn't started is gray.
@@ -113,10 +115,17 @@ extension Target {
             return HomeTile(group: .green, needsAttention: false)
         }
 
-        // A rolling target whose window is covered has nothing to do until coverage lapses, so it
-        // reads "not needed yet" (light blue) rather than done; it turns yellow the day it's due.
+        // A rolling target that is done for today has nothing to do until that lapses, so it reads
+        // "not needed yet" (light blue) rather than done; it turns yellow the day it's due. With
+        // `oncePerDay` it can be done without the window being covered (a log today, or still enough
+        // days left to reach the goal), and then it keeps its progress fill.
         if isRolling == true, current.result == .done {
-            return HomeTile(group: .lightBlue, needsAttention: false)
+            var fraction: Double?
+            let goal = value ?? 0
+            if oncePerDay == true, goal > 0, (current.loggedValue ?? 0) < goal - toleranceAmount {
+                fraction = min(1, max(0, (current.loggedValue ?? 0) / goal))
+            }
+            return HomeTile(group: .lightBlue, needsAttention: false, progress: fraction)
         }
 
         switch current.result {
@@ -146,10 +155,14 @@ extension Target {
             return entry.weekday == weekday
         }
         let needed = intervalDays <= 2 || plannedToday || daysLeft <= 2
+        // Count each day once: after a log today nothing more can count until tomorrow, so the
+        // target reads "not needed yet" (light blue, progress fill kept) instead of yellow.
+        let doneForToday = oncePerDay == true
+            && logs.contains { calendar.isDate($0.completedAt, inSameDayAs: now) }
         // Before its daily show-from time, a needed target waits like a set-aside one (blue).
-        let heldForTime = needed && isBeforeShowTime(asOf: now, calendar: calendar)
+        let heldForTime = needed && !doneForToday && isBeforeShowTime(asOf: now, calendar: calendar)
         let setAside = (snoozedUntil ?? .distantPast) > now || heldForTime
-        let attention = needed && !setAside
+        let attention = needed && !setAside && !doneForToday
 
         if hasProgress {
             let goal = value ?? 0

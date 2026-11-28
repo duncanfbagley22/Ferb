@@ -4,19 +4,37 @@ extension Target {
     /// Whether Quick update (Today's focus) would offer this target right now: it's active,
     /// its current period isn't already met, and it isn't a cap or an NFC target (those are
     /// logged from the Record tab). The evening alert uses the same check, so the two agree.
-    func needsQuickLog(asOf now: Date = .now, calendar: Calendar = .current, ignoringShowTime: Bool = false) -> Bool {
+    func needsQuickLog(
+        asOf now: Date = .now,
+        calendar: Calendar = .current,
+        ignoringShowTime: Bool = false,
+        includingRoom: Bool = false
+    ) -> Bool {
         guard isActive(asOf: now, calendar: calendar), let item else { return false }
         if let snoozedUntil, snoozedUntil > now { return false }
         if !ignoringShowTime, isBeforeShowTime(asOf: now, calendar: calendar) { return false }
         if item.quantityDirection == .cap { return false }
         if item.effectiveMethod == .nfc { return false }
+        // Count each day once: after a log today, nothing more can count until tomorrow.
+        if oncePerDay == true, logs.contains(where: { calendar.isDate($0.completedAt, inSameDayAs: now) }) { return false }
         let current = recentPeriods(1, asOf: now, calendar: calendar).first(where: \.isCurrent)
         // A non-cap period can only be missed while still running if it was skipped with X.
         if current?.result == .missed { return false }
         // A time target gets one try per period: once a time is logged (even outside its
         // window), it isn't offered again.
         if item.quantitySubtype == .timeTarget, current?.loggedValue != nil { return false }
+        // Quick update (not the alerts or badge) also offers a target that is only ok because there is
+        // room to spare, so it can be logged early without being required.
+        if includingRoom, hasRoomToSpare(current) { return true }
         return current?.result != .done
+    }
+
+    /// A rolling target that counts each day once, whose day is ok (done) only because enough days
+    /// remain to still reach the goal, with the window not yet covered. Callers have already ruled
+    /// out a log today (`needsQuickLog` returns early for that), so this means "not logged yet".
+    private func hasRoomToSpare(_ current: TargetPeriod?) -> Bool {
+        guard isRolling == true, oncePerDay == true, current?.result == .done, let goal = value else { return false }
+        return (current?.loggedValue ?? 0) < goal - toleranceAmount
     }
 
     /// True while the clock is before this target's daily "show from" time. Nil time = never.
@@ -31,9 +49,14 @@ extension Target {
     /// caps are included: a cap is offered once a day, until something is logged for it today
     /// (or it's set aside with Not today). Caps stay out of `needsQuickLog` on purpose, so the
     /// evening alert doesn't fire for a cap that stays open all day.
-    func needsQuickUpdate(asOf now: Date = .now, calendar: Calendar = .current, ignoringShowTime: Bool = false) -> Bool {
+    func needsQuickUpdate(
+        asOf now: Date = .now,
+        calendar: Calendar = .current,
+        ignoringShowTime: Bool = false,
+        includingRoom: Bool = true
+    ) -> Bool {
         guard let item, item.quantityDirection == .cap else {
-            return needsQuickLog(asOf: now, calendar: calendar, ignoringShowTime: ignoringShowTime)
+            return needsQuickLog(asOf: now, calendar: calendar, ignoringShowTime: ignoringShowTime, includingRoom: includingRoom)
         }
         guard isActive(asOf: now, calendar: calendar) else { return false }
         if let snoozedUntil, snoozedUntil > now { return false }
@@ -46,6 +69,7 @@ extension Target {
     /// and still needing a log. Same rules as Quick update (logging, Skip and Not today clear it),
     /// except the show-from time is ignored, so the badge is there from the start of the day.
     func needsBadge(asOf now: Date = .now, calendar: Calendar = .current) -> Bool {
-        badgeNudge == true && needsQuickUpdate(asOf: now, calendar: calendar, ignoringShowTime: true)
+        badgeNudge == true
+            && needsQuickUpdate(asOf: now, calendar: calendar, ignoringShowTime: true, includingRoom: false)
     }
 }

@@ -48,6 +48,10 @@ final class Target {
     /// app icon until it's logged, skipped (X) or set aside for the day. Nil or false = no badge.
     /// Optional, so old rows are fine.
     var badgeNudge: Bool?
+    /// True = on a "N times in M days" goal (amount in Times), each calendar day counts at most once,
+    /// so several logs in one day add 1, not more. Extra logs are kept, just not counted twice.
+    /// Nil or false = every log counts. Optional, so old rows are fine.
+    var oncePerDay: Bool?
 
     @Relationship(deleteRule: .cascade, inverse: \Log.target)
     var logs: [Log] = []
